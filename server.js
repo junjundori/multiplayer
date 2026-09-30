@@ -1,201 +1,203 @@
-
 const http = require("http");
 const WebSocket = require("ws");
 
 const PORT = process.env.PORT || 3000;
+const W = 1600, H = 1000;
 
 const games = [
-  { id: 1, name: "도시 탐험", icon: "🏙️", type: "city" },
-  { id: 2, name: "미로 탈출", icon: "🌀", type: "maze" },
-  { id: 3, name: "자동차 피하기", icon: "🚗", type: "race" },
-  { id: 4, name: "우주 탐험", icon: "🚀", type: "space" },
-  { id: 5, name: "축구 경기장", icon: "⚽", type: "soccer" },
-  { id: 6, name: "농구 코트", icon: "🏀", type: "basketball" },
-  { id: 7, name: "전투 지역", icon: "🛡️", type: "battle" },
-  { id: 8, name: "공원 산책", icon: "🌳", type: "park" },
-  { id: 9, name: "보물 찾기", icon: "💎", type: "treasure" },
-  { id: 10, name: "경찰서", icon: "🚓", type: "police" },
-  { id: 11, name: "은행 탐험", icon: "🏦", type: "bank" },
-  { id: 12, name: "소방서", icon: "🚒", type: "fire" },
-  { id: 13, name: "병원 탐험", icon: "🏥", type: "hospital" },
-  { id: 14, name: "도서관", icon: "📚", type: "library" },
-  { id: 15, name: "편의점", icon: "🏪", type: "store" },
-  { id: 16, name: "아파트", icon: "🏢", type: "apartment" },
-  { id: 17, name: "해변 탐험", icon: "🏖️", type: "beach" },
-  { id: 18, name: "숲속 모험", icon: "🌲", type: "forest" },
-  { id: 19, name: "눈 덮인 마을", icon: "❄️", type: "snow" },
-  { id: 20, name: "화산 지대", icon: "🌋", type: "volcano" },
-  { id: 21, name: "광산 탐험", icon: "⛏️", type: "mine" },
-  { id: 22, name: "수중 도시", icon: "🐠", type: "ocean" },
-  { id: 23, name: "놀이공원", icon: "🎡", type: "amusement" },
-  { id: 24, name: "공항", icon: "✈️", type: "airport" },
-  { id: 25, name: "기차역", icon: "🚆", type: "station" },
-  { id: 26, name: "유령의 집", icon: "👻", type: "haunted" },
-  { id: 27, name: "보석 동굴", icon: "💠", type: "cave" },
-  { id: 28, name: "사막 탐험", icon: "🏜️", type: "desert" },
-  { id: 29, name: "섬 생존", icon: "🏝️", type: "island" },
-  { id: 30, name: "정원 꾸미기", icon: "🌷", type: "garden" }
-];
+  ["도시 탐험","🏙️","city"],["미로 탈출","🌀","maze"],
+  ["자동차 피하기","🚗","dodge"],["우주 탐험","🚀","space"],
+  ["축구 경기장","⚽","soccer"],["농구 코트","🏀","basket"],
+  ["전투 지역","🛡️","battle"],["공원 산책","🌳","park"],
+  ["보물 찾기","💎","treasure"],["경찰서","🚓","police"],
+  ["은행 탐험","🏦","bank"],["소방서","🚒","fire"],
+  ["병원 탐험","🏥","hospital"],["도서관","📚","library"],
+  ["편의점","🏪","store"],["아파트","🏢","apartment"],
+  ["해변 탐험","🏖️","beach"],["숲속 모험","🌲","forest"],
+  ["눈 덮인 마을","❄️","snow"],["화산 지대","🌋","volcano"],
+  ["광산 탐험","⛏️","mine"],["수중 도시","🐠","ocean"],
+  ["놀이공원","🎡","amusement"],["공항","✈️","airport"],
+  ["기차역","🚆","station"],["유령의 집","👻","haunted"],
+  ["보석 동굴","💠","cave"],["사막 탐험","🏜️","desert"],
+  ["섬 생존","🏝️","island"],["정원 꾸미기","🌷","garden"]
+].map((g,i)=>({id:i+1,name:g[0],icon:g[1],type:g[2]}));
 
 const players = new Map();
 const sockets = new Map();
-const usedNames = new Map();
 
-function safeText(value, max = 24) {
-  return String(value ?? "")
-    .replace(/[<>]/g, "")
-    .trim()
-    .slice(0, max);
+function clean(v,n=180) {
+  return String(v ?? "").replace(/[<>]/g,"").trim().slice(0,n);
 }
 
-function makeUniqueName(requested, id) {
-  const base = safeText(requested, 18) || "플레이어";
-  let candidate = base;
-  let number = 2;
-
-  while (
-    [...players.values()].some(
-      p => p.id !== id && p.name === candidate
-    )
-  ) {
-    candidate = `${base} (${number++})`;
-  }
-
-  return candidate;
-}
-
-function send(ws, data) {
-  if (ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(data));
+function send(ws,obj) {
+  if(ws && ws.readyState===WebSocket.OPEN) {
+    ws.send(JSON.stringify(obj));
   }
 }
 
-function broadcastPlayers() {
-  const snapshot = [...players.values()].map(p => ({
-    id: p.id,
-    name: p.name,
-    avatar: p.avatar,
-    x: p.x,
-    y: p.y,
-    game: p.game
-  }));
-
-  for (const ws of sockets.values()) {
-    send(ws, { type: "players", players: snapshot });
+function broadcast() {
+  const list=[...players.values()].map(p=>({...p}));
+  for(const ws of sockets.values()) {
+    send(ws,{type:"players",players:list});
   }
 }
 
-function removePlayer(id) {
-  players.delete(id);
-  sockets.delete(id);
-  broadcastPlayers();
+function uniqueName(name,id) {
+  const base=clean(name,18)||"플레이어";
+  let value=base,n=2;
+
+  while([...players.values()].some(p=>p.id!==id&&p.name===value)) {
+    value=base+" ("+n+++")";
+  }
+
+  return value;
 }
 
-const html = String.raw`<!doctype html>
+const page=String.raw`<!doctype html>
 <html lang="ko">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>초록빛 멀티플레이어 월드</title>
+<title>멀티플레이어 월드</title>
 <style>
 *{box-sizing:border-box}
-:root{color-scheme:dark}
 body{
-  margin:0;min-height:100vh;color:#effff4;
+  margin:0;
+  color:#edfff3;
   font-family:Arial,"Malgun Gothic",sans-serif;
-  background:radial-gradient(ellipse at top,#146c43 0%,#082c20 48%,#06150f 100%);
-}
-button,input{font:inherit}
-button{
-  cursor:pointer;color:white;border:1px solid #57d68d;
-  background:linear-gradient(135deg,#159957,#087443);
-  border-radius:12px;padding:10px 14px;
-}
-button:hover{filter:brightness(1.15)}
-input{
-  color:white;background:#102a20;border:1px solid #347a54;
-  padding:10px;border-radius:10px;min-width:0;
+  background:radial-gradient(at top,#176c43,#08291d 65%,#04150e)
 }
 header{
-  padding:18px;display:flex;align-items:center;justify-content:space-between;
-  gap:12px;flex-wrap:wrap;border-bottom:1px solid #3d875d;
-  background:linear-gradient(110deg,#0d5135dd,#0a281fe8);
-  position:sticky;top:0;z-index:5;backdrop-filter:blur(12px);
+  padding:18px;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:12px;
+  flex-wrap:wrap;
+  background:linear-gradient(110deg,#12623d,#09271b);
+  border-bottom:1px solid #54b77b;
+  position:sticky;
+  top:0;
+  z-index:5
 }
-h1{font-size:clamp(20px,4vw,30px);margin:0}
+h1{margin:0;font-size:26px}
 h2{margin-top:0}
-.sub{color:#b9e8cb;font-size:13px;margin-top:6px}
-main{max-width:1400px;margin:auto;padding:18px}
+main{max-width:1400px;margin:auto;padding:16px}
 .panel{
-  background:linear-gradient(145deg,#143d2ddd,#0b241bdd);
-  border:1px solid #367a50;border-radius:18px;padding:16px;margin-bottom:18px;
-  box-shadow:0 10px 35px #0003;
+  padding:16px;
+  margin-bottom:16px;
+  border:1px solid #347d50;
+  border-radius:17px;
+  background:linear-gradient(145deg,#153c2b,#0b2319);
+  box-shadow:0 8px 24px #0003
 }
-.profile{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
-.profile input{width:160px}
+input,select{
+  padding:10px;
+  border-radius:10px;
+  background:#0b2419;
+  color:white;
+  border:1px solid #478c5d;
+  max-width:100%
+}
+button{
+  color:white;
+  cursor:pointer;
+  border:1px solid #5bbd7c;
+  border-radius:12px;
+  padding:10px 14px;
+  background:linear-gradient(135deg,#159957,#087443)
+}
+button:hover{filter:brightness(1.15)}
+.profile{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .grid{
-  display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:12px;
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(155px,1fr));
+  gap:12px
 }
 .game{
-  text-align:left;min-height:132px;padding:14px;
-  background:linear-gradient(145deg,#1a6945,#10412e 72%,#0c3024);
-  border:1px solid #4aa76e;border-radius:16px;
-  box-shadow:inset 0 1px #ffffff10,0 6px 15px #0002;
-  transition:transform .15s,border-color .15s;
+  text-align:left;
+  min-height:120px;
+  background:linear-gradient(145deg,#1b6845,#0d3827);
+  padding:14px;
+  border-radius:15px
 }
-.game:hover{transform:translateY(-3px);border-color:#a0ffc0}
-.game .icon{font-size:32px;display:block;margin-bottom:10px}
-.game .name{font-weight:bold;display:block}
-.game .num{display:block;color:#b7e7c8;font-size:12px;margin-top:7px}
+.game .icon{display:block;font-size:32px;margin-bottom:9px}
+.game .name{font-weight:bold}
+.number{display:block;margin-top:8px;color:#bce8c9;font-size:12px}
 #gameView{display:none}
 #mapWrap{
-  position:relative;width:100%;height:min(66vh,650px);min-height:360px;
-  overflow:hidden;border-radius:16px;border:2px solid #55a878;
-  background:#183c2a;isolation:isolate;
+  width:100%;
+  height:min(65vh,650px);
+  min-height:320px;
+  position:relative;
+  overflow:hidden;
+  border:2px solid #4b9d69;
+  border-radius:14px;
+  background:#152e20
 }
 #world{
-  display:block;width:100%;height:100%;touch-action:none;
+  width:100%;
+  height:100%;
+  display:block;
+  touch-action:none
 }
-#topInfo{
-  position:absolute;left:10px;top:10px;z-index:2;
-  background:#071d15dc;border:1px solid #4d9567;
-  padding:8px 12px;border-radius:10px;pointer-events:none;
+.overlay{
+  position:absolute;
+  top:10px;
+  background:#071b13df;
+  padding:9px 12px;
+  border:1px solid #47875c;
+  border-radius:10px;
+  pointer-events:none;
+  font-size:13px
 }
-#playersInfo{
-  position:absolute;right:10px;top:10px;z-index:2;
-  background:#071d15dc;padding:8px 12px;border-radius:10px;
-  border:1px solid #4d9567;font-size:12px;max-width:45%;
-}
-#chatPanel{margin-top:12px}
+#topInfo{left:10px}
+#playersInfo{right:10px}
 #chatMessages{
-  height:140px;overflow:auto;background:#061a12;
-  border:1px solid #2e6846;border-radius:10px;padding:10px;
-  overflow-wrap:anywhere;
+  height:140px;
+  overflow:auto;
+  padding:10px;
+  background:#06170f;
+  border:1px solid #316847;
+  border-radius:10px;
+  overflow-wrap:anywhere
 }
 .chatrow{margin-bottom:6px}
 .chatform{display:flex;gap:8px;margin-top:8px}
-.chatform input{flex:1;width:100%}
+.chatform input{flex:1;width:100%;min-width:0}
 #controls{
-  display:flex;justify-content:space-between;align-items:center;
-  gap:16px;margin-top:12px;flex-wrap:wrap;
+  display:flex;
+  align-items:center;
+  gap:18px;
+  margin-top:12px;
+  flex-wrap:wrap
 }
 #stick{
-  width:140px;height:140px;border-radius:50%;position:relative;
-  background:radial-gradient(circle,#2a6948,#102f21);
-  border:2px solid #6db78a;touch-action:none;user-select:none;
+  width:130px;
+  height:130px;
+  position:relative;
+  flex:none;
+  border-radius:50%;
+  background:radial-gradient(#32734d,#0b2d1e);
+  border:2px solid #70b78a;
+  touch-action:none
 }
 #knob{
-  width:54px;height:54px;position:absolute;left:41px;top:41px;
-  border-radius:50%;background:linear-gradient(135deg,#8affad,#20a85c);
-  box-shadow:0 3px 12px #0005;pointer-events:none;
+  position:absolute;
+  width:48px;
+  height:48px;
+  left:39px;
+  top:39px;
+  border-radius:50%;
+  background:linear-gradient(135deg,#9affb7,#1b9d55);
+  pointer-events:none
 }
-#status{font-size:13px;color:#b9e8cb}
-.hidden{display:none!important}
+#status{font-size:13px;color:#c5f2d2}
 @media(max-width:600px){
- main{padding:10px}header{padding:12px}
- .grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
- .game{min-height:118px;padding:10px}
- #mapWrap{height:56vh;min-height:300px}
+  main{padding:9px}
+  .grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .game{padding:10px;min-height:112px}
+  header{padding:12px}
 }
 </style>
 </head>
@@ -203,973 +205,1370 @@ main{max-width:1400px;margin:auto;padding:18px}
 <header>
   <div>
     <h1>초록빛 멀티플레이어 월드</h1>
-    <div class="sub">30개의 서로 다른 탐험 맵 · 실시간 플레이</div>
+    <div style="font-size:13px;color:#bde9cc;margin-top:5px">
+      30개의 게임 · 실시간 멀티플레이어
+    </div>
   </div>
-  <div id="status">서버 연결 중...</div>
+  <div id="status">연결 중...</div>
 </header>
-<main>
-  <section id="home">
-    <div class="panel">
-      <h2>플레이어 설정</h2>
-      <div class="profile">
-        <label for="nickname">닉네임</label>
-        <input id="nickname" maxlength="18" value="플레이어" autocomplete="off">
-        <label for="avatar">캐릭터</label>
-        <select id="avatar" style="background:#102a20;color:white;padding:10px;border-radius:10px">
-          <option>🧑</option><option>👨‍🚀</option><option>🦊</option>
-          <option>🐱</option><option>🐸</option><option>🤖</option>
-          <option>🐼</option><option>🐯</option><option>👻</option>
-          <option>🧙</option><option>🦖</option><option>🐰</option>
-        </select>
-      </div>
-    </div>
-    <div class="panel">
-      <h2>게임 선택</h2>
-      <div id="gameGrid" class="grid"></div>
-    </div>
-  </section>
 
-  <section id="gameView">
-    <div class="panel">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
-        <div><h2 id="gameTitle">맵</h2><div class="sub">WASD 또는 방향키로 이동하세요.</div></div>
+<main>
+<section id="home">
+  <div class="panel">
+    <h2>플레이어 설정</h2>
+    <div class="profile">
+      <label for="nickname">닉네임</label>
+      <input id="nickname" maxlength="18" value="플레이어">
+
+      <label for="avatar">캐릭터</label>
+      <select id="avatar">
+        <option>🧑</option>
+        <option>🤖</option>
+        <option>🦊</option>
+        <option>🐱</option>
+        <option>🐸</option>
+        <option>🐼</option>
+        <option>👨‍🚀</option>
+        <option>🐰</option>
+        <option>🦖</option>
+        <option>👻</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>게임 선택</h2>
+    <div id="gameGrid" class="grid"></div>
+  </div>
+</section>
+
+<section id="gameView">
+  <div class="panel">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+      <div>
+        <h2 id="gameTitle">게임</h2>
+        <div id="objective">목표를 확인하세요.</div>
+      </div>
+
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button id="restartBtn" style="display:none">다시 시작</button>
         <button id="leaveBtn">게임 나가기</button>
       </div>
-      <div id="mapWrap">
-        <canvas id="world"></canvas>
-        <div id="topInfo">맵을 불러오는 중...</div>
-        <div id="playersInfo">접속 플레이어: 0명</div>
-      </div>
-      <div id="controls">
-        <div id="stick"><div id="knob"></div></div>
-        <div style="flex:1;min-width:180px">
-          <div>이동: WASD / 방향키 / 조이스틱</div>
-          <div class="sub">같은 맵에 들어온 플레이어가 함께 보여요.</div>
+    </div>
+
+    <div id="mapWrap">
+      <canvas id="world"></canvas>
+      <div id="topInfo" class="overlay">맵</div>
+      <div id="playersInfo" class="overlay">플레이어: 0명</div>
+    </div>
+
+    <div id="controls">
+      <div id="stick"><div id="knob"></div></div>
+      <div style="flex:1">
+        WASD / 방향키 / 조이스틱으로 이동
+        <br>
+        <div style="font-size:13px;color:#bde9cc;margin-top:5px">
+          목표물에 가까이 가서 탐험하세요.
         </div>
       </div>
-      <div id="chatPanel">
-        <h3>맵 채팅</h3>
-        <div id="chatMessages"></div>
-        <form id="chatForm" class="chatform">
-          <input id="chatInput" maxlength="180" placeholder="메시지를 입력하세요..." autocomplete="off">
-          <button type="submit">전송</button>
-        </form>
-      </div>
     </div>
-  </section>
+
+    <div style="margin-top:16px">
+      <h3>맵 채팅</h3>
+      <div id="chatMessages"></div>
+      <form id="chatForm" class="chatform">
+        <input id="chatInput" maxlength="180" placeholder="메시지 입력..." autocomplete="off">
+        <button>전송</button>
+      </form>
+    </div>
+  </div>
+</section>
 </main>
 
 <script>
-const GAMES = __GAMES__;
-const grid = document.getElementById("gameGrid");
-const home = document.getElementById("home");
-const gameView = document.getElementById("gameView");
-const canvas = document.getElementById("world");
-const ctx = canvas.getContext("2d");
-const statusEl = document.getElementById("status");
-const topInfo = document.getElementById("topInfo");
-const playersInfo = document.getElementById("playersInfo");
-const messages = document.getElementById("chatMessages");
-const nickname = document.getElementById("nickname");
-const avatarSelect = document.getElementById("avatar");
+const GAMES=__GAMES__, WORLD_W=1600,WORLD_H=1000;
+const $=id=>document.getElementById(id);
+const canvas=$("world");
+const ctx=canvas.getContext("2d");
 
-let ws;
-let myId = null;
-let currentGame = null;
-let allPlayers = [];
-let me = {x:400,y:300};
-let keys = {};
-let joystick = {x:0,y:0};
-let lastSent = 0;
-let mapSeed = 1;
-let worldW = 1600;
-let worldH = 1000;
-const playerSize = 26;
-const rand = (seed) => {
-  let n = Math.sin(seed * 127.1 + 311.7) * 43758.5453;
-  return n - Math.floor(n);
-};
+let ws,myId=null,current=null,players=[],me={x:800,y:500},keys={};
+let joy={x:0,y:0},lastMove=0,lastTime=0,obstacles=[],goal={x:1400,y:500};
+let progress=0,gameOver=false;
+let oCollected=new Set();
 
-for (const game of GAMES) {
-  const button = document.createElement("button");
-  button.className = "game";
-  button.innerHTML =
-    '<span class="icon">' + game.icon + '</span>' +
-    '<span class="name"></span><span class="num">게임 ' + game.id + '</span>';
-  button.querySelector(".name").textContent = game.name;
-  button.addEventListener("click", () => joinGame(game));
-  grid.appendChild(button);
+const grid=$("gameGrid");
+
+for(const g of GAMES){
+  const b=document.createElement("button");
+  b.className="game";
+
+  const icon=document.createElement("span");
+  icon.className="icon";
+  icon.textContent=g.icon;
+
+  const name=document.createElement("span");
+  name.className="name";
+  name.textContent=g.name;
+
+  const number=document.createElement("span");
+  number.className="number";
+  number.textContent="게임 "+g.id;
+
+  b.append(icon,name,number);
+  b.onclick=()=>joinGame(g);
+  grid.appendChild(b);
 }
 
-function connect() {
-  const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-  ws = new WebSocket(protocol + "//" + location.host);
+function connect(){
+  const scheme=location.protocol==="https:"?"wss:":"ws:";
+  ws=new WebSocket(scheme+"//"+location.host);
 
-  ws.addEventListener("open", () => {
-    statusEl.textContent = "서버 연결됨";
-    if (currentGame) sendJoin();
-  });
+  ws.onopen=()=>{
+    $("status").textContent="서버 연결됨";
+    if(current)sendJoin();
+  };
 
-  ws.addEventListener("message", event => {
-    let data;
-    try { data = JSON.parse(event.data); } catch { return; }
+  ws.onmessage=e=>{
+    let d;
+    try{d=JSON.parse(e.data)}catch{return}
 
-    if (data.type === "welcome") {
-      myId = data.id;
-      if (currentGame) sendJoin();
+    if(d.type==="welcome"){
+      myId=d.id;
+      if(current)sendJoin();
     }
-    if (data.type === "players") {
-      allPlayers = data.players || [];
-      const visible = allPlayers.filter(p => p.game === currentGame?.id);
-      playersInfo.textContent = "이 맵의 플레이어: " + visible.length + "명";
-      const mine = allPlayers.find(p => p.id === myId);
-      if (mine && mine.game === currentGame?.id) {
-        nickname.value = mine.name;
+
+    if(d.type==="players"){
+      players=d.players||[];
+      const same=players.filter(p=>p.game===current?.id);
+
+      $("playersInfo").textContent="이 맵의 플레이어: "+same.length+"명";
+
+      const own=players.find(p=>p.id===myId);
+      if(own && own.game===current?.id){
+        $("nickname").value=own.name;
       }
     }
-    if (data.type === "chat" && data.game === currentGame?.id) {
-      addChat(data.name, data.avatar, data.message);
-    }
-    if (data.type === "joined" && data.name) {
-      nickname.value = data.name;
-    }
-  });
 
-  ws.addEventListener("close", () => {
-    statusEl.textContent = "연결 끊김 · 새로고침해 주세요";
-  });
-  ws.addEventListener("error", () => {
-    statusEl.textContent = "서버 연결 오류";
-  });
+    if(d.type==="joined"&&d.name){
+      $("nickname").value=d.name;
+    }
+
+    if(d.type==="chat"&&d.game===current?.id){
+      addChat(d.name,d.avatar,d.message);
+    }
+  };
+
+  ws.onclose=()=>{
+    $("status").textContent="연결 끊김";
+  };
+
+  ws.onerror=()=>{
+    $("status").textContent="연결 오류";
+  };
 }
 
-function send(data) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(data));
+function send(d){
+  if(ws&&ws.readyState===WebSocket.OPEN){
+    ws.send(JSON.stringify(d));
   }
 }
 
-function sendJoin() {
-  if (!currentGame || !myId) return;
-  send({
-    type: "join",
-    game: currentGame.id,
-    name: nickname.value,
-    avatar: avatarSelect.value
-  });
+function sendJoin(){
+  if(current&&myId){
+    send({
+      type:"join",
+      game:current.id,
+      name:$("nickname").value,
+      avatar:$("avatar").value
+    });
+  }
 }
 
-function joinGame(game) {
-  currentGame = game;
-  mapSeed = game.id * 71 + 19;
-  me = {x:worldW/2,y:worldH/2};
-  home.style.display = "none";
-  gameView.style.display = "block";
-  document.getElementById("gameTitle").textContent = game.icon + " " + game.name;
-  topInfo.textContent = game.name;
-  messages.innerHTML = "";
-  resizeCanvas();
+function joinGame(g){
+  current=g;
+  me=g.type==="maze"?{x:48,y:48}:{x:800,y:500};
+  progress=0;
+  gameOver=false;
+  oCollected=new Set();
+
+  $("home").style.display="none";
+  $("gameView").style.display="block";
+  $("gameTitle").textContent=g.icon+" "+g.name;
+  $("topInfo").textContent=g.name;
+  $("restartBtn").style.display="none";
+  $("chatMessages").replaceChildren();
+  $("objective").textContent=objectives[g.type]||"맵을 탐험하세요.";
+
+  makeObstacles();
+  resize();
   sendJoin();
   draw();
 }
 
-function leaveGame() {
+function leaveGame(){
   send({type:"leave"});
-  currentGame = null;
-  gameView.style.display = "none";
-  home.style.display = "block";
-  allPlayers = allPlayers.map(p => p.id === myId ? {...p,game:null} : p);
+  current=null;
+  $("gameView").style.display="none";
+  $("home").style.display="block";
 }
 
-document.getElementById("leaveBtn").addEventListener("click", leaveGame);
+$("leaveBtn").onclick=leaveGame;
+$("restartBtn").onclick=()=>{
+  if(current)joinGame(current);
+};
 
-function resizeCanvas() {
-  const rect = canvas.getBoundingClientRect();
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  canvas.width = Math.max(1, Math.round(rect.width * dpr));
-  canvas.height = Math.max(1, Math.round(rect.height * dpr));
-  ctx.setTransform(dpr,0,0,dpr,0,0);
+const objectives={
+  city:"목표: 도로와 건물 사이를 자유롭게 탐험하세요.",
+  maze:"목표: 벽에 부딪히지 않고 노란색 출구에 도착하세요.",
+  dodge:"목표: 움직이는 장애물과 자동차를 피하세요.",
+  space:"목표: 우주선을 찾아 행성 사이를 탐험하세요.",
+  soccer:"목표: 축구공 가까이 다가가 경기장을 탐험하세요.",
+  basket:"목표: 농구 코트와 골대를 찾아보세요.",
+  battle:"목표: 장애물을 피하며 전장을 탐험하세요.",
+  park:"목표: 나무와 연못이 있는 공원을 산책하세요.",
+  treasure:"목표: 보석을 모아 점수를 올리세요.",
+  police:"목표: 경찰서 안팎을 탐험하세요.",
+  bank:"목표: 은행 내부의 금고 구역을 찾아보세요.",
+  fire:"목표: 소방서와 소방차를 찾아보세요.",
+  hospital:"목표: 병실과 접수 구역을 탐험하세요.",
+  library:"목표: 책장 사이를 돌아다니세요.",
+  store:"목표: 편의점 진열대 사이를 탐험하세요.",
+  apartment:"목표: 아파트 단지 사이를 탐험하세요.",
+  beach:"목표: 모래사장과 바다를 탐험하세요.",
+  forest:"목표: 울창한 숲길을 찾아보세요.",
+  snow:"목표: 눈 마을을 탐험하세요.",
+  volcano:"목표: 용암 구역을 피해 탐험하세요.",
+  mine:"목표: 광산에서 보석을 찾아보세요.",
+  ocean:"목표: 수중 도시를 탐험하세요.",
+  amusement:"목표: 놀이공원의 놀이기구를 찾아보세요.",
+  airport:"목표: 활주로와 터미널을 탐험하세요.",
+  station:"목표: 기차역과 승강장을 탐험하세요.",
+  haunted:"목표: 유령의 집을 탐험하세요.",
+  cave:"목표: 동굴 속 보석을 찾아보세요.",
+  desert:"목표: 사막의 오아시스를 찾아보세요.",
+  island:"목표: 섬을 탐험하세요.",
+  garden:"목표: 정원의 꽃과 연못을 찾아보세요."
+};
+
+function makeObstacles(){
+  obstacles=[];
+  const type=current.type;
+
+  if(type==="maze"){
+    // 16 x 10 DFS maze
+    const cols=16,rows=10,cell=100,thick=12;
+
+    const cells=Array.from(
+      {length:rows},
+      ()=>Array.from(
+        {length:cols},
+        ()=>({
+          seen:false,
+          walls:{top:true,right:true,bottom:true,left:true}
+        })
+      )
+    );
+
+    let seed=current.id*7919+17;
+    const rand=()=>{
+      seed=(seed*48271)%2147483647;
+      return seed/2147483647;
+    };
+
+    const stack=[{x:0,y:0}];
+    cells[0][0].seen=true;
+
+    while(stack.length){
+      const cur=stack[stack.length-1];
+
+      const choices=[
+        {x:cur.x,y:cur.y-1,wall:"top",opposite:"bottom"},
+        {x:cur.x+1,y:cur.y,wall:"right",opposite:"left"},
+        {x:cur.x,y:cur.y+1,wall:"bottom",opposite:"top"},
+        {x:cur.x-1,y:cur.y,wall:"left",opposite:"right"}
+      ].filter(n=>
+        n.x>=0&&n.x<cols&&n.y>=0&&n.y<rows&&
+        !cells[n.y][n.x].seen
+      );
+
+      if(!choices.length){
+        stack.pop();
+        continue;
+      }
+
+      const next=choices[Math.floor(rand()*choices.length)];
+
+      cells[cur.y][cur.x].walls[next.wall]=false;
+      cells[next.y][next.x].walls[next.opposite]=false;
+      cells[next.y][next.x].seen=true;
+      stack.push({x:next.x,y:next.y});
+    }
+
+    for(let y=0;y<rows;y++){
+      for(let x=0;x<cols;x++){
+        const c=cells[y][x];
+        const px=x*cell,py=y*cell;
+
+        if(c.walls.top&&y===0){
+          obstacles.push({x:px,y:py,w:cell,h:thick});
+        }
+
+        if(c.walls.left&&x===0){
+          obstacles.push({x:px,y:py,w:thick,h:cell});
+        }
+
+        if(c.walls.right){
+          obstacles.push({
+            x:px+cell-thick,y:py,w:thick,h:cell
+          });
+        }
+
+        if(c.walls.bottom){
+          obstacles.push({
+            x:px,y:py+cell-thick,w:cell,h:thick
+          });
+        }
+      }
+    }
+  }
+
+  if(type==="dodge"){
+    for(let i=0;i<13;i++){
+      obstacles.push({
+        x:100+i*110,
+        y:100+(i%3)*280,
+        w:65,h:110,
+        moving:true,
+        phase:i
+      });
+    }
+  }
+
+  if(type==="battle"||type==="mine"||type==="cave"){
+    for(let i=0;i<24;i++){
+      obstacles.push({
+        x:100+(i*173)%1350,
+        y:100+(i*239)%780,
+        w:50+(i%3)*15,
+        h:45+(i%4)*12
+      });
+    }
+  }
+
+  if(type==="volcano"){
+    for(let i=0;i<12;i++){
+      obstacles.push({
+        x:130+i*115,
+        y:180+(i%3)*250,
+        w:70,h:65
+      });
+    }
+  }
+}
+
+function resize(){
+  const r=canvas.getBoundingClientRect();
+  const dpr=Math.min(devicePixelRatio||1,2);
+
+  canvas.width=Math.max(1,Math.round(r.width*dpr));
+  canvas.height=Math.max(1,Math.round(r.height*dpr));
   draw();
 }
-window.addEventListener("resize", resizeCanvas);
 
-function rect(x,y,w,h,color) {
-  ctx.fillStyle = color;
-  ctx.fillRect(x,y,w,h);
-}
-function circle(x,y,r,color) {
-  ctx.beginPath();
-  ctx.arc(x,y,r,0,Math.PI*2);
-  ctx.fillStyle = color;
-  ctx.fill();
-}
-function line(x1,y1,x2,y2,color,width=2) {
-  ctx.beginPath();
-  ctx.moveTo(x1,y1);
-  ctx.lineTo(x2,y2);
-  ctx.strokeStyle=color;
-  ctx.lineWidth=width;
-  ctx.stroke();
-}
-function text(str,x,y,color="#ffffff",size=14) {
-  ctx.fillStyle=color;
-  ctx.font="bold "+size+"px Arial";
-  ctx.textAlign="center";
-  ctx.fillText(str,x,y);
-}
-function roundedRect(x,y,w,h,r,color) {
-  ctx.fillStyle=color;
+window.addEventListener("resize",resize);
+
+function rr(x,y,w,h,r,c){
+  ctx.fillStyle=c;
   ctx.beginPath();
   ctx.roundRect(x,y,w,h,r);
   ctx.fill();
 }
-function drawTree(x,y,s=1) {
-  circle(x,y+5*s,13*s,"#123c28");
-  circle(x,y,12*s,"#25814b");
-  circle(x-6*s,y+3*s,7*s,"#319657");
+
+function rect(x,y,w,h,c){
+  ctx.fillStyle=c;
+  ctx.fillRect(x,y,w,h);
 }
-function drawBuilding(x,y,w,h,color,label) {
-  rect(x+5,y+6,w,h,"#07190f66");
-  roundedRect(x,y,w,h,5,color);
-  for(let wy=y+13;wy<y+h-8;wy+=22){
-    for(let wx=x+10;wx<x+w-7;wx+=19){
-      rect(wx,wy,10,12,"#b8edc7");
+
+function circ(x,y,r,c){
+  ctx.beginPath();
+  ctx.arc(x,y,r,0,Math.PI*2);
+  ctx.fillStyle=c;
+  ctx.fill();
+}
+
+function line(x,y,a,b,c,width=2){
+  ctx.beginPath();
+  ctx.moveTo(x,y);
+  ctx.lineTo(a,b);
+  ctx.strokeStyle=c;
+  ctx.lineWidth=width;
+  ctx.stroke();
+}
+
+function label(s,x,y,c="#fff",size=20){
+  ctx.fillStyle=c;
+  ctx.font="bold "+size+"px Arial";
+  ctx.textAlign="center";
+  ctx.fillText(s,x,y);
+}
+
+function building(x,y,w,h,c,title){
+  rr(x,y,w,h,5,c);
+
+  for(let yy=y+16;yy<y+h-15;yy+=35){
+    for(let xx=x+12;xx<x+w-10;xx+=35){
+      rect(xx,yy,20,22,"#c3edc9");
     }
   }
-  if(label) text(label,x+w/2,y+h+16,"#e5ffe9",12);
+
+  if(title)label(title,x+w/2,y+h+22,"#fff",17);
 }
-function drawBackground() {
-  const w=canvas.clientWidth,h=canvas.clientHeight;
-  const grad=ctx.createLinearGradient(0,0,0,h);
-  grad.addColorStop(0,"#347c4a");
-  grad.addColorStop(1,"#17412c");
-  rect(0,0,w,h,grad);
+
+function tree(x,y){
+  circ(x,y+12,17,"#23502f");
+  circ(x,y,21,"#25844a");
+  circ(x-9,y+3,12,"#369c58");
 }
-function drawMap() {
-  const w=canvas.clientWidth,h=canvas.clientHeight;
+
+function drawBackground(){
+  const g=ctx.createLinearGradient(0,0,0,WORLD_H);
+  g.addColorStop(0,"#357b49");
+  g.addColorStop(1,"#214b30");
+  rect(0,0,WORLD_W,WORLD_H,g);
+}
+
+function drawMap(){
+  const t=current.type;
   drawBackground();
 
+  switch(t){
+
+    case "city":
+      rect(0,0,WORLD_W,WORLD_H,"#777d7c");
+      rect(0,390,WORLD_W,220,"#343b3e");
+      rect(610,0,210,WORLD_H,"#343b3e");
+
+      rect(0,370,WORLD_W,20,"#c6c8bd");
+      rect(0,610,WORLD_W,20,"#c6c8bd");
+      rect(590,0,20,WORLD_H,"#c6c8bd");
+      rect(820,0,20,WORLD_H,"#c6c8bd");
+
+      for(let x=15;x<WORLD_W;x+=90){
+        rect(x,495,48,6,"#f4d66f");
+      }
+
+      for(let y=15;y<WORLD_H;y+=90){
+        rect(710,y,6,48,"#f4d66f");
+      }
+
+      building(35,35,230,285,"#526f83","상가");
+      building(300,55,250,270,"#77766c","사무실");
+      building(870,35,250,300,"#4d7289","호텔");
+      building(1150,35,400,300,"#77838a","아파트");
+      building(40,690,260,250,"#8c796a","주차장");
+      building(330,690,220,250,"#9b9a8c","상점");
+      building(880,700,260,230,"#7b8b92","병원");
+      building(1170,700,350,230,"#8a8175","오피스");
+
+      for(let x=25;x<580;x+=55){
+        rect(x,350,28,12,"#d7d7ce");
+        rect(x,640,28,12,"#d7d7ce");
+      }
+      break;
+
+    case "maze":
+      rect(0,0,WORLD_W,WORLD_H,"#d8d0a2");
+
+      for(const o of obstacles){
+        rr(o.x,o.y,o.w,o.h,3,"#245638");
+      }
+
+      rr(45,45,100,70,8,"#45ce77");
+      label("START",95,88,"#073c1d",18);
+      rr(1430,850,100,90,8,"#f5d34b");
+      label("EXIT",1480,905,"#493600",18);
+      goal={x:1480,y:895};
+      break;
+
+    case "dodge":
+      rect(0,0,WORLD_W,WORLD_H,"#294e38");
+
+      for(let x=160;x<1500;x+=180){
+        rect(x,0,5,WORLD_H,"#a8b3a0");
+      }
+
+      rect(0,470,WORLD_W,60,"#e7dfad");
+
+      for(const o of obstacles){
+        rr(o.x,o.y,o.w,o.h,12,"#b2b8ba");
+        rr(o.x+7,o.y+8,o.w-14,30,6,"#76c8de");
+        circ(o.x+14,o.y+o.h-4,11,"#171b1b");
+        circ(o.x+o.w-14,o.y+o.h-4,11,"#171b1b");
+      }
+      break;
+
+    case "space":
+      rect(0,0,WORLD_W,WORLD_H,"#101b46");
+
+      for(let i=0;i<180;i++){
+        circ((i*137+31)%WORLD_W,(i*271+13)%WORLD_H,1+i%3,"#fff");
+      }
+
+      circ(350,280,100,"#347ed2");
+      circ(320,250,24,"#8ac7ff");
+      circ(1200,650,135,"#a64f61");
+
+      ctx.beginPath();
+      ctx.ellipse(1200,650,190,40,.3,0,Math.PI*2);
+      ctx.strokeStyle="#dfb5b2";
+      ctx.lineWidth=8;
+      ctx.stroke();
+
+      label("🚀",800,500);
+      break;
+
+    case "soccer":
+      rect(80,60,1440,880,"#278844");
+
+      for(let x=80;x<1520;x+=180){
+        rect(x,60,90,880,"#30974b");
+      }
+
+      ctx.strokeStyle="#fff";
+      ctx.lineWidth=5;
+      ctx.strokeRect(80,60,1440,880);
+      line(800,60,800,940,"#fff",4);
+
+      ctx.beginPath();
+      ctx.arc(800,500,120,0,Math.PI*2);
+      ctx.stroke();
+
+      ctx.strokeRect(80,300,220,400);
+      ctx.strokeRect(1300,300,220,400);
+      label("⚽",800,500,undefined,42);
+      break;
+
+    case "basket":
+      rect(80,60,1440,880,"#bd8250");
+
+      ctx.strokeStyle="#fff0d8";
+      ctx.lineWidth=5;
+      ctx.strokeRect(80,60,1440,880);
+      line(800,60,800,940,"#fff0d8",4);
+
+      for(const x of [250,1350]){
+        ctx.beginPath();
+        ctx.arc(x,500,155,0,Math.PI*2);
+        ctx.stroke();
+        rect(x-60,460,8,80,"#fff");
+        circ(x,500,10,"#fff");
+      }
+      break;
+
+    case "battle":
+      rect(0,0,WORLD_W,WORLD_H,"#535f53");
+
+      for(const o of obstacles){
+        rr(o.x,o.y,o.w,o.h,3,"#646d65");
+      }
+
+      label("훈련 구역",800,80);
+      break;
+
+    case "park":
+      rect(0,450,WORLD_W,100,"#d2bc8d");
+      rect(750,0,100,WORLD_H,"#d2bc8d");
+
+      for(let i=0;i<35;i++){
+        tree(70+(i*197)%1450,60+(i*137)%850);
+      }
+
+      circ(1100,300,95,"#2e85b8");
+      circ(1100,300,75,"#4ab2d5");
+      break;
+
+    case "treasure":
+      rect(0,0,WORLD_W,WORLD_H,"#c8b475");
+
+      for(let i=0;i<25;i++){
+        circ((i*197)%WORLD_W,(i*137)%WORLD_H,22,"#b3a05e");
+      }
+
+      rr(650,420,300,160,15,"#78502d");
+      label("보물 상자",800,505,"#ffe5a1",30);
+
+      for(let i=0;i<14;i++){
+        label("💎",100+(i*107)%1400,100+(i*173)%800,"#fff",27);
+      }
+      break;
+
+    case "police":
+      rect(0,0,WORLD_W,WORLD_H,"#9cbbb9");
+      building(150,120,500,600,"#536f83","경찰서");
+      rr(800,150,620,480,10,"#cbd9d6");
+      label("접수처",1100,220,"#314a49");
+      rr(900,700,300,100,10,"#334c61");
+      label("POLICE",1050,760);
+      break;
+
+    case "bank":
+      rect(0,0,WORLD_W,WORLD_H,"#a2c3a1");
+      building(300,130,1000,440,"#a5b3a3","은행");
+
+      for(let i=0;i<6;i++){
+        rr(300+i*170,700,130,110,8,"#4c6556");
+      }
+
+      label("금고 구역",800,875,"#254b30");
+      break;
+
+    case "fire":
+      rect(0,0,WORLD_W,WORLD_H,"#b9a18a");
+      building(260,100,1080,480,"#bd5946","소방서");
+
+      for(let i=0;i<3;i++){
+        rr(320+i*350,680,260,120,12,"#d94d39");
+        rect(350+i*350,700,95,50,"#9dd9e9");
+        circ(390+i*350,805,22,"#222");
+        circ(520+i*350,805,22,"#222");
+      }
+      break;
+
+    case "hospital":
+      rect(0,0,WORLD_W,WORLD_H,"#c8e4dd");
+      building(300,100,1000,530,"#dcece8","병원");
+      rect(720,250,160,45,"#e64f5b");
+      rect(778,192,45,160,"#e64f5b");
+
+      for(let i=0;i<5;i++){
+        rr(180+i*250,740,170,95,12,"#7da7a3");
+      }
+      break;
+
+    case "library":
+      rect(0,0,WORLD_W,WORLD_H,"#b9996c");
+
+      for(let r=0;r<4;r++){
+        for(let c=0;c<7;c++){
+          const x=90+c*205,y=100+r*205;
+          rr(x,y,170,150,5,"#69462f");
+
+          for(let k=0;k<6;k++){
+            rect(
+              x+12+k*25,y+15,18,120,
+              ["#d3a457","#9f4c3e","#4e8061","#526d9a"][k%4]
+            );
+          }
+        }
+      }
+      break;
+
+    case "store":
+      rect(0,0,WORLD_W,WORLD_H,"#b7c5a3");
+      rr(170,100,1260,800,12,"#eae4ce");
+      rect(170,100,1260,120,"#e8b94c");
+      label("편의점",800,180,"#40351e",35);
+
+      for(let r=0;r<3;r++){
+        for(let c=0;c<6;c++){
+          const x=230+c*195,y=280+r*180;
+          rr(x,y,150,115,5,"#9c7051");
+
+          for(let k=0;k<4;k++){
+            rect(
+              x+12+k*32,y+15,22,80,
+              ["#e15e50","#e6c451","#6bb7a0","#6994c4"][k]
+            );
+          }
+        }
+      }
+      break;
+
+    case "apartment":
+      rect(0,0,WORLD_W,WORLD_H,"#9db29b");
+
+      for(let i=0;i<5;i++){
+        building(
+          50+i*310,150,220,580,
+          ["#a4babc","#8ca3b0","#c6b8a4"][i%3],
+          "동 "+(i+1)
+        );
+      }
+
+      rect(0,830,WORLD_W,60,"#66746a");
+      break;
+
+    case "beach":
+      rect(0,0,WORLD_W,300,"#3ba6d0");
+      rect(0,300,WORLD_W,150,"#bce9de");
+      rect(0,450,WORLD_W,550,"#e8d19a");
+
+      for(let i=0;i<7;i++){
+        tree(100+i*220,600+(i%3)*80);
+      }
+
+      for(let i=0;i<12;i++){
+        label("☀️",80+i*125,170+(i%3)*30,"#fff",24);
+      }
+      break;
+
+    case "forest":
+      rect(0,0,WORLD_W,WORLD_H,"#17412c");
+
+      for(let i=0;i<100;i++){
+        tree((i*191)%WORLD_W,(i*263)%WORLD_H);
+      }
+
+      rect(0,460,WORLD_W,80,"#b8a276");
+      rect(760,0,80,WORLD_H,"#b8a276");
+      break;
+
+    case "snow":
+      rect(0,0,WORLD_W,WORLD_H,"#dcebf0");
+
+      for(let i=0;i<14;i++){
+        building(40+i*110,200+(i%4)*80,85,130,"#8fb8c9");
+      }
+
+      for(let i=0;i<100;i++){
+        circ((i*151)%WORLD_W,(i*191)%WORLD_H,2+i%3,"#fff");
+      }
+
+      rect(0,850,WORLD_W,150,"#f7ffff");
+      break;
+
+    case "volcano":
+      rect(0,0,WORLD_W,WORLD_H,"#482c32");
+
+      ctx.beginPath();
+      ctx.moveTo(250,850);
+      ctx.lineTo(800,120);
+      ctx.lineTo(1350,850);
+      ctx.closePath();
+      ctx.fillStyle="#383238";
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.moveTo(690,300);
+      ctx.lineTo(800,180);
+      ctx.lineTo(910,300);
+      ctx.closePath();
+      ctx.fillStyle="#f07838";
+      ctx.fill();
+
+      line(800,300,800,850,"#e95435",30);
+
+      for(const o of obstacles){
+        rr(o.x,o.y,o.w,o.h,10,"#f07838");
+      }
+      break;
+
+    case "mine":
+      rect(0,0,WORLD_W,WORLD_H,"#403a36");
+
+      for(let i=0;i<45;i++){
+        const x=(i*137)%WORLD_W;
+        const y=(i*211)%WORLD_H;
+
+        circ(x,y,20+i%20,"#5e5650");
+
+        if(i%4===0){
+          label("💎",x,y,"#fff",22);
+        }
+      }
+
+      line(0,500,WORLD_W,500,"#c19b64",28);
+
+      for(let x=50;x<WORLD_W;x+=100){
+        line(x,465,x,535,"#a47d4b",6);
+      }
+      break;
+
+    case "ocean":
+      rect(0,0,WORLD_W,WORLD_H,"#137ea6");
+
+      for(let i=0;i<70;i++){
+        ctx.beginPath();
+        ctx.ellipse(
+          (i*173)%WORLD_W,
+          (i*197)%WORLD_H,
+          28,8,0,0,Math.PI*2
+        );
+        ctx.strokeStyle="#8fe3eb88";
+        ctx.lineWidth=3;
+        ctx.stroke();
+      }
+
+      rr(400,260,800,430,35,"#63b9c2");
+
+      for(let i=0;i<6;i++){
+        rr(500+i*120,320,70,90,10,"#b7ece0");
+      }
+
+      for(let i=0;i<12;i++){
+        label("🐠",(i*127)%WORLD_W,(i*183)%WORLD_H,"#fff",24);
+      }
+      break;
+
+    case "amusement":
+      rect(0,0,WORLD_W,WORLD_H,"#9fcb92");
+      rect(0,430,WORLD_W,130,"#d4b98a");
+
+      for(let i=0;i<8;i++){
+        const x=100+i*200;
+
+        circ(x,250,65,["#e45d66","#55b6df","#e7c44c","#ad86d5"][i%4]);
+        circ(x,250,17,"#fff1c8");
+
+        for(let k=0;k<8;k++){
+          const a=k*Math.PI/4;
+          circ(x+Math.cos(a)*48,250+Math.sin(a)*48,9,"#fff0bc");
+        }
+      }
+      break;
+
+    case "airport":
+      rect(0,0,WORLD_W,WORLD_H,"#4d7e55");
+      rect(100,80,1400,840,"#424a4a");
+
+      for(let y=130;y<870;y+=100){
+        rect(790,y,20,55,"#f4f1d9");
+      }
+
+      rr(250,170,400,170,12,"#b9c5c4");
+      label("TERMINAL",450,265,"#33413e",28);
+
+      for(let i=0;i<3;i++){
+        const x=350+i*450;
+        line(x-70,620,x+70,620,"#fff",5);
+        line(x,550,x,690,"#fff",5);
+      }
+      break;
+
+    case "station":
+      rect(0,0,WORLD_W,WORLD_H,"#718e7d");
+      rect(0,250,WORLD_W,500,"#494e4c");
+
+      for(let y=330;y<700;y+=170){
+        rect(0,y,WORLD_W,8,"#bab5a4");
+      }
+
+      for(let x=100;x<WORLD_W;x+=260){
+        rect(x,180,12,650,"#6e6b60");
+        rect(x-40,180,90,18,"#c1bba9");
+      }
+
+      rr(400,100,800,100,12,"#b5c7b9");
+      label("기차역",800,160,"#264535",30);
+      break;
+
+    case "haunted":
+      rect(0,0,WORLD_W,WORLD_H,"#211e31");
+      building(180,250,330,430,"#42354e");
+      building(630,160,330,520,"#30263f");
+      building(1080,250,330,430,"#493348");
+
+      for(let i=0;i<25;i++){
+        circ((i*131)%WORLD_W,(i*179)%WORLD_H,3,"#c7b7e8");
+      }
+
+      label("유령의 집",800,820,"#d6c8f3",30);
+      break;
+
+    case "cave":
+      rect(0,0,WORLD_W,WORLD_H,"#292f38");
+
+      for(let i=0;i<40;i++){
+        const x=(i*173)%WORLD_W;
+        const y=(i*197)%WORLD_H;
+
+        circ(x,y,30+i%35,"#434c57");
+
+        if(i%4===0){
+          label("💠",x,y,"#b5f5ff",23);
+        }
+      }
+
+      line(0,500,WORLD_W,500,"#647483",22);
+      break;
+
+    case "desert":
+      rect(0,0,WORLD_W,WORLD_H,"#d9bd76");
+
+      for(let i=0;i<14;i++){
+        ctx.beginPath();
+        ctx.ellipse(
+          (i*173)%WORLD_W,
+          (i*211)%WORLD_H,
+          120,35,0,0,Math.PI*2
+        );
+        ctx.fillStyle="#c7a65e";
+        ctx.fill();
+      }
+
+      for(let i=0;i<8;i++){
+        const x=100+i*200;
+        const y=250+(i%3)*140;
+
+        rect(x,y,22,110,"#3b7442");
+        rect(x-35,y+25,40,18,"#3b7442");
+        rect(x+15,y+50,35,18,"#3b7442");
+      }
+
+      circ(1250,750,65,"#36a9bd");
+      label("오아시스",1250,840,"#755a2e",20);
+      break;
+
+    case "island":
+      rect(0,0,WORLD_W,WORLD_H,"#1686a1");
+
+      ctx.beginPath();
+      ctx.ellipse(800,500,650,420,0,0,Math.PI*2);
+      ctx.fillStyle="#d9c486";
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.ellipse(800,500,560,340,0,0,Math.PI*2);
+      ctx.fillStyle="#4a9854";
+      ctx.fill();
+
+      for(let i=0;i<20;i++){
+        tree(
+          800+Math.cos(i*1.7)*400,
+          500+Math.sin(i*1.7)*230
+        );
+      }
+      break;
+
+    case "garden":
+      rect(0,0,WORLD_W,WORLD_H,"#418d4d");
+      rect(0,440,WORLD_W,100,"#c7b58b");
+      rect(750,0,100,WORLD_H,"#c7b58b");
+
+      for(let i=0;i<40;i++){
+        const x=100+(i*127)%1400;
+        const y=70+(i*173)%850;
+
+        circ(x,y,25,"#2f7541");
+        circ(x-8,y-6,12,["#ed91c2","#e9d36b","#b9a0f1","#fff"][i%4]);
+      }
+
+      circ(1100,300,70,"#64b8d0");
+      break;
+  }
+
+  // 맵의 바깥쪽 경계
+  ctx.strokeStyle="#ffffff44";
+  ctx.lineWidth=8;
+  ctx.strokeRect(4,4,WORLD_W-8,WORLD_H-8);
+}
+
+function circleRect(x,y,r,o){
+  const nx=Math.max(o.x,Math.min(x,o.x+o.w));
+  const ny=Math.max(o.y,Math.min(y,o.y+o.h));
+
+  return (x-nx)**2+(y-ny)**2<r*r;
+}
+
+function blocked(x,y){
+  if(
+    current.type==="maze"||
+    current.type==="battle"||
+    current.type==="mine"||
+    current.type==="cave"||
+    current.type==="volcano"
+  ){
+    return obstacles.some(o=>circleRect(x,y,18,o));
+  }
+
+  return false;
+}
+
+function drawPlayers(){
+  for(const p of players){
+    if(p.game!==current?.id)continue;
+
+    const x=p.id===myId?me.x:p.x;
+    const y=p.id===myId?me.y:p.y;
+
+    if(!Number.isFinite(x)||!Number.isFinite(y))continue;
+
+    ctx.globalAlpha=1;
+    circ(x,y+7,15,"#0005");
+    circ(x,y,18,p.id===myId?"#8affad":"#ffffff");
+    circ(x,y,14,p.id===myId?"#267d4a":"#5c7f68");
+
+    ctx.fillStyle="#fff";
+    ctx.font="25px Arial";
+    ctx.textAlign="center";
+    ctx.textBaseline="middle";
+    ctx.fillText(p.avatar||"🧑",x,y);
+
+    ctx.font="bold 16px Arial";
+    ctx.textBaseline="alphabetic";
+    ctx.lineWidth=4;
+    ctx.strokeStyle="#10271c";
+    ctx.strokeText(p.name||"플레이어",x,y-28);
+
+    ctx.fillStyle="#fff";
+    ctx.fillText(p.name||"플레이어",x,y-28);
+  }
+
+  ctx.globalAlpha=1;
+}
+
+function draw(){
+  if(!current)return;
+
+  const cw=canvas.clientWidth;
+  const ch=canvas.clientHeight;
+
+  if(!cw||!ch)return;
+
+  const sx=canvas.width/cw;
+  const sy=canvas.height/ch;
+
+  ctx.setTransform(sx,0,0,sy,0,0);
+  rect(0,0,cw,ch,"#152e20");
+
+  // 가로와 세로의 비율을 동일하게 유지
+  const scale=Math.min(cw/WORLD_W,ch/WORLD_H);
+  const ox=(cw-WORLD_W*scale)/2;
+  const oy=(ch-WORLD_H*scale)/2;
+
+  const viewW=Math.min(WORLD_W,cw/scale);
+  const viewH=Math.min(WORLD_H,ch/scale);
+
+  const camX=Math.max(0,Math.min(WORLD_W-viewW,me.x-viewW/2));
+  const camY=Math.max(0,Math.min(WORLD_H-viewH,me.y-viewH/2));
+
   ctx.save();
-  // World is clipped to the visible canvas: no stray shapes outside the map.
   ctx.beginPath();
-  ctx.rect(0,0,w,h);
+  ctx.rect(ox,oy,WORLD_W*scale,WORLD_H*scale);
   ctx.clip();
 
-  const sx=w/worldW, sy=h/worldH;
-  ctx.scale(sx,sy);
-  const type=currentGame?.type || "city";
+  ctx.translate(ox,oy);
+  ctx.scale(scale,scale);
+  ctx.translate(-camX,-camY);
 
-  switch(type) {
-    case "city":
-      drawCity(); break;
-    case "maze":
-      drawMaze(); break;
-    case "race":
-      drawRace(); break;
-    case "space":
-      drawSpace(); break;
-    case "soccer":
-      drawSoccer(); break;
-    case "basketball":
-      drawBasketball(); break;
-    case "battle":
-      drawBattle(); break;
-    case "park":
-      drawPark(); break;
-    case "treasure":
-      drawTreasure(); break;
-    case "police":
-      drawPolice(); break;
-    case "bank":
-      drawBank(); break;
-    case "fire":
-      drawFire(); break;
-    case "hospital":
-      drawHospital(); break;
-    case "library":
-      drawLibrary(); break;
-    case "store":
-      drawStore(); break;
-    case "apartment":
-      drawApartment(); break;
-    case "beach":
-      drawBeach(); break;
-    case "forest":
-      drawForest(); break;
-    case "snow":
-      drawSnow(); break;
-    case "volcano":
-      drawVolcano(); break;
-    case "mine":
-      drawMine(); break;
-    case "ocean":
-      drawOcean(); break;
-    case "amusement":
-      drawAmusement(); break;
-    case "airport":
-      drawAirport(); break;
-    case "station":
-      drawStation(); break;
-    case "haunted":
-      drawHaunted(); break;
-    case "cave":
-      drawCave(); break;
-    case "desert":
-      drawDesert(); break;
-    case "island":
-      drawIsland(); break;
-    case "garden":
-      drawGarden(); break;
+  drawMap();
+
+  if(current.type==="dodge"){
+    const time=performance.now()/450;
+
+    for(const o of obstacles){
+      o.y=100+((time*35+o.phase*137)%760);
+    }
   }
-  drawGrid();
-  ctx.restore();
-}
-function drawGrid() {
-  for(let x=0;x<=worldW;x+=100) line(x,0,x,worldH,"#ffffff0a",1);
-  for(let y=0;y<=worldH;y+=100) line(0,y,worldW,y,"#ffffff0a",1);
-}
-function drawCity() {
-  rect(0,0,worldW,worldH,"#427a4c");
-  rect(0,420,worldW,170,"#303c3b");
-  rect(600,0,150,worldH,"#303c3b");
-  for(let x=0;x<worldW;x+=75) rect(x,500,38,5,"#e8d68c");
-  for(let y=0;y<worldH;y+=70) rect(670,y,5,35,"#e8d68c");
-  drawBuilding(90,90,160,220,"#426e83","상가");
-  drawBuilding(300,110,180,190,"#7c7464","사무실");
-  drawBuilding(900,100,170,230,"#4e728b","호텔");
-  drawBuilding(1250,100,200,220,"#6d797c","아파트");
-  drawPark( );
-  drawTree(520,240);drawTree(820,750);drawTree(1100,720);drawTree(280,760);
-}
-function drawMaze() {
-  rect(0,0,worldW,worldH,"#c7c99d");
-  const cell=100;
-  for(let y=0;y<worldH;y+=cell){
-    for(let x=0;x<worldW;x+=cell){
-      if(rand(x+y*3+mapSeed)>.42){
-        rect(x+4,y+4,cell-8,cell-8,"#24533a");
-        rect(x+9,y+9,cell-18,cell-18,"#34784a");
-      } else {
-        rect(x+4,y+4,cell-8,cell-8,"#e2dca5");
+
+  if(current.type==="treasure"){
+    for(let i=0;i<14;i++){
+      const x=100+(i*107)%1400;
+      const y=100+(i*173)%800;
+
+      if(!oCollected.has(i)){
+        label("💎",x,y,"#fff",27);
       }
     }
   }
-  roundedRect(80,80,90,90,15,"#49d17b");
-  text("START",125,130,"#06351c",15);
-  roundedRect(1400,800,100,100,15,"#f0ce54");
-  text("GOAL",1450,855,"#473100",15);
-}
-function drawRace() {
-  rect(0,0,worldW,worldH,"#408a50");
-  ctx.beginPath();
-  ctx.ellipse(800,500,620,360,0,0,Math.PI*2);
-  ctx.fillStyle="#343b3c";ctx.fill();
-  ctx.beginPath();
-  ctx.ellipse(800,500,470,235,0,0,Math.PI*2);
-  ctx.fillStyle="#408a50";ctx.fill();
-  ctx.beginPath();
-  ctx.ellipse(800,500,545,300,0,0,Math.PI*2);
-  ctx.strokeStyle="#f4e4a3";ctx.lineWidth=4;ctx.setLineDash([20,18]);ctx.stroke();ctx.setLineDash([]);
-  roundedRect(720,170,160,45,8,"#f1f1e9");
-  text("START",800,199,"#222222",17);
-}
-function drawSpace() {
-  rect(0,0,worldW,worldH,"#101b46");
-  for(let i=0;i<220;i++){
-    const x=rand(i+mapSeed)*worldW,y=rand(i*4+mapSeed)*worldH;
-    circle(x,y,1+rand(i*8)*2,"#ffffff");
-  }
-  circle(400,300,90,"#3179d4");circle(370,270,22,"#6aa4ed");
-  circle(1150,700,130,"#a95460");circle(1110,660,30,"#e38c75");
-  ctx.beginPath();ctx.ellipse(1150,700,190,48,.25,0,Math.PI*2);
-  ctx.strokeStyle="#d9a7a1";ctx.lineWidth=9;ctx.stroke();
-  circle(830,210,48,"#e4c36a");
-}
-function drawSoccer() {
-  rect(0,0,worldW,worldH,"#277b42");
-  rect(100,70,1400,860,"#2d984d");
-  for(let x=100;x<1500;x+=200) rect(x,70,100,860,"#258542");
-  ctx.strokeStyle="#d9ffe0";ctx.lineWidth=5;ctx.strokeRect(100,70,1400,860);
-  line(800,70,800,930,"#d9ffe0",4);
-  ctx.beginPath();ctx.arc(800,500,120,0,Math.PI*2);ctx.strokeStyle="#d9ffe0";ctx.lineWidth=4;ctx.stroke();
-  ctx.strokeRect(100,300,200,400);ctx.strokeRect(1300,300,200,400);
-  rect(60,400,40,200,"#eeeeee");rect(1500,400,40,200,"#eeeeee");
-}
-function drawBasketball() {
-  rect(0,0,worldW,worldH,"#a66b3f");
-  rect(100,70,1400,860,"#dca46b");
-  ctx.strokeStyle="#fff0d8";ctx.lineWidth=5;ctx.strokeRect(100,70,1400,860);
-  line(800,70,800,930,"#fff0d8",4);
-  for(const x of [250,1350]){
-    ctx.beginPath();ctx.arc(x,500,160,0,Math.PI*2);ctx.stroke();
-    ctx.beginPath();ctx.arc(x,500,80,-Math.PI/2,Math.PI/2);ctx.stroke();
-    rect(x-60,465,8,70,"#ffffff");
-    circle(x,500,9,"#ffffff");
-  }
-}
-function drawBattle() {
-  rect(0,0,worldW,worldH,"#4d5c50");
-  for(let i=0;i<26;i++){
-    const x=rand(i+mapSeed)*1450+30,y=rand(i*3+mapSeed)*850+30;
-    rect(x,y,75+rand(i+6)*70,35+rand(i+9)*45,"#5e625b");
-    rect(x+8,y+6,55,5,"#868980");
-  }
-  for(let i=0;i<9;i++){
-    const x=100+i*165;
-    rect(x,200,60,100,"#3d4942");
-    rect(x+12,215,36,12,"#829078");
-  }
-  text("훈련 구역",800,80,"#ffffff",28);
-}
-function drawPark() {
-  // Park features are placed within the world bounds.
-  rect(0,0,worldW,worldH,"#438e4b");
-  rect(0,450,worldW,100,"#d3bf8d");
-  rect(730,0,110,worldH,"#d3bf8d");
-  for(let i=0;i<24;i++){
-    const x=50+rand(i+mapSeed)*1500,y=40+rand(i*5+mapSeed)*900;
-    drawTree(x,y,.8+rand(i*2)*.6);
-  }
-  circle(1100,300,95,"#3289b9");
-  circle(1100,300,75,"#46a6d0");
-  for(let i=0;i<35;i++){
-    const x=rand(i*9+mapSeed)*worldW,y=rand(i*13+mapSeed)*worldH;
-    circle(x,y,4,["#f6a9c4","#f6dc76","#c9a7ff"][i%3]);
-  }
-}
-function drawTreasure() {
-  rect(0,0,worldW,worldH,"#c9b777");
-  for(let i=0;i<40;i++){
-    const x=rand(i+mapSeed)*worldW,y=rand(i*2+mapSeed)*worldH;
-    circle(x,y,18,"#b4a15d");
-  }
-  for(let i=0;i<12;i++){
-    const x=100+rand(i*5+mapSeed)*1400,y=100+rand(i*8+mapSeed)*800;
-    text("💎",x,y, "#ffffff",28);
-  }
-  roundedRect(680,430,240,140,20,"#7b4829");
-  text("보물 상자",800,500,"#ffe7a8",24);
-}
-function drawPolice() {
-  rect(0,0,worldW,worldH,"#9aaeb2");
-  rect(70,70,1460,860,"#d2d9d8");
-  drawBuilding(180,180,420,550,"#607d8b","경찰서");
-  rect(650,160,780,580,"#9eafb2");
-  for(let i=0;i<5;i++) rect(700+i*140,220,70,450,"#bac6c8");
-  roundedRect(700,780,280,90,12,"#344d60");
-  text("POLICE",840,835,"#ffffff",28);
-}
-function drawBank() {
-  rect(0,0,worldW,worldH,"#9cba9d");
-  rect(120,120,1360,760,"#e5e5d4");
-  drawBuilding(400,170,800,430,"#9eae9e","은행");
-  rect(550,650,500,120,"#536c5b");
-  for(let i=0;i<4;i++) rect(590+i*110,675,70,55,"#d1d9b6");
-  text("BANK",800,820,"#234a30",30);
-}
-function drawFire() {
-  rect(0,0,worldW,worldH,"#b8a18a");
-  rect(100,100,1400,800,"#d5c2a9");
-  drawBuilding(300,200,1000,430,"#b64f3f","소방서");
-  for(let i=0;i<3;i++){
-    roundedRect(400+i*270,700,190,90,10,"#d84a39");
-    rect(420+i*270,720,80,45,"#8cc5d9");
-    circle(450+i*270,800,20,"#303030");
-    circle(540+i*270,800,20,"#303030");
-  }
-}
-function drawHospital() {
-  rect(0,0,worldW,worldH,"#b8d9d4");
-  rect(100,100,1400,800,"#e6f1ed");
-  drawBuilding(360,180,880,520,"#d0e0df","병원");
-  rect(730,300,140,45,"#e74b55");
-  rect(777,250,45,145,"#e74b55");
-  rect(150,740,1300,50,"#91b5ae");
-}
-function drawLibrary() {
-  rect(0,0,worldW,worldH,"#9b7754");
-  rect(100,100,1400,800,"#d6bb91");
-  for(let r=0;r<4;r++){
-    for(let c=0;c<7;c++){
-      const x=160+c*185,y=170+r*165;
-      roundedRect(x,y,145,115,6,"#69452d");
-      for(let b=0;b<6;b++) rect(x+8+b*21,y+15,15,80,["#d4a85d","#9d4b3f","#527c64","#4b6e98"][b%4]);
-    }
-  }
-  text("도서관",800,880,"#57391f",28);
-}
-function drawStore() {
-  rect(0,0,worldW,worldH,"#b5c7a3");
-  rect(100,100,1400,800,"#d8d4b5");
-  roundedRect(250,150,1100,650,12,"#ece7d1");
-  rect(250,150,1100,110,"#e6b74c");
-  text("편의점",800,220,"#3c3825",35);
-  for(let r=0;r<3;r++) for(let c=0;c<6;c++){
-    const x=330+c*170,y=320+r*140;
-    roundedRect(x,y,130,95,5,"#9b6e4e");
-    for(let k=0;k<4;k++) rect(x+12+k*28,y+15,19,55,["#de6550","#e6c451","#6bb7a0","#6994c4"][k]);
-  }
-}
-function drawApartment() {
-  rect(0,0,worldW,worldH,"#8ba58e");
-  rect(0,0,worldW,worldH,"#a6bba5");
-  for(let i=0;i<5;i++){
-    drawBuilding(80+i*300,180,210,590,["#a2b7b9","#8ca3b0","#c3b7a3"][i%3],"동 "+(i+1));
-  }
-  rect(0,820,worldW,60,"#66746a");
-  for(let i=0;i<6;i++) drawTree(150+i*250,120);
-}
-function drawBeach() {
-  rect(0,0,worldW,worldH,"#e8d29a");
-  rect(0,0,worldW,300,"#48a8d0");
-  rect(0,300,worldW,160,"#bde9df");
-  for(let i=0;i<16;i++){
-    circle(rand(i+mapSeed)*worldW,rand(i*3+mapSeed)*280,2,"#ffffff");
-  }
-  for(let i=0;i<7;i++){
-    const x=100+i*220,y=520+rand(i+mapSeed)*300;
-    drawTree(x,y,.9);
-    line(x,y+20,x,y+80,"#8b5d36",8);
-  }
-  text("해변",800,500,"#8a693e",30);
-}
-function drawForest() {
-  rect(0,0,worldW,worldH,"#163e2c");
-  for(let i=0;i<100;i++){
-    const x=rand(i+mapSeed)*worldW,y=rand(i*4+mapSeed)*worldH;
-    drawTree(x,y,.9+rand(i*3)*1.2);
-  }
-  rect(0,450,worldW,100,"#b8a276");
-  rect(750,0,100,worldH,"#b8a276");
-  circle(800,500,60,"#9b7c48");
-}
-function drawSnow() {
-  rect(0,0,worldW,worldH,"#dcebf0");
-  for(let i=0;i<80;i++){
-    const x=rand(i+mapSeed)*worldW,y=rand(i*4+mapSeed)*worldH;
-    circle(x,y,2+rand(i*8)*3,"#ffffff");
-  }
-  for(let i=0;i<12;i++){
-    const x=50+i*130,y=180+rand(i+mapSeed)*500;
-    drawBuilding(x,y,85,95+rand(i*2)*90,"#91b7c7");
-  }
-  rect(0,800,worldW,200,"#f7ffff");
-}
-function drawVolcano() {
-  rect(0,0,worldW,worldH,"#482b32");
-  for(let i=0;i<25;i++){
-    const x=rand(i+mapSeed)*worldW,y=rand(i*5+mapSeed)*worldH;
-    circle(x,y,20+rand(i*7)*35,"#65444a");
-  }
-  ctx.beginPath();
-  ctx.moveTo(300,750);ctx.lineTo(800,140);ctx.lineTo(1300,750);ctx.closePath();
-  ctx.fillStyle="#393137";ctx.fill();
-  ctx.beginPath();
-  ctx.moveTo(670,300);ctx.lineTo(800,180);ctx.lineTo(930,300);ctx.closePath();
-  ctx.fillStyle="#f07838";ctx.fill();
-  line(800,300,800,800,"#f07838",28);
-  line(820,430,1000,650,"#e84d32",18);
-}
-function drawMine() {
-  rect(0,0,worldW,worldH,"#403a36");
-  for(let i=0;i<24;i++){
-    const x=rand(i+mapSeed)*worldW,y=rand(i*4+mapSeed)*worldH;
-    roundedRect(x,y,70,65,12,"#5e5650");
-    if(i%3===0) text("💎",x+35,y+42,"#ffffff",24);
-  }
-  line(0,500,worldW,500,"#c19b64",30);
-  for(let x=50;x<worldW;x+=100){
-    line(x,465,x,535,"#a47d4b",6);
-  }
-}
-function drawOcean() {
-  rect(0,0,worldW,worldH,"#137ea6");
-  for(let i=0;i<65;i++){
-    const x=rand(i+mapSeed)*worldW,y=rand(i*5+mapSeed)*worldH;
-    ctx.beginPath();ctx.ellipse(x,y,25,7,.1,0,Math.PI*2);
-    ctx.strokeStyle="#8fe3eb88";ctx.lineWidth=3;ctx.stroke();
-  }
-  roundedRect(400,260,800,430,35,"#63b9c2");
-  for(let i=0;i<6;i++){
-    const x=500+i*120;
-    roundedRect(x,320,70,90,12,"#b7ece0");
-    rect(x+25,350,20,30,"#348da2");
-  }
-  for(let i=0;i<12;i++) text("🐠",rand(i+mapSeed)*worldW,rand(i*3+mapSeed)*worldH,"#ffffff",23);
-}
-function drawAmusement() {
-  rect(0,0,worldW,worldH,"#9fcb92");
-  rect(0,430,worldW,130,"#d4b98a");
-  for(let i=0;i<8;i++){
-    const x=100+i*200;
-    circle(x,250,65,["#e45d66","#55b6df","#e7c44c","#ad86d5"][i%4]);
-    circle(x,250,17,"#fff1c8");
-    for(let k=0;k<8;k++){
-      const a=k*Math.PI/4;
-      circle(x+Math.cos(a)*48,250+Math.sin(a)*48,9,"#fff0bc");
-    }
-  }
-  for(let i=0;i<6;i++) drawTree(140+i*260,720,.9);
-}
-function drawAirport() {
-  rect(0,0,worldW,worldH,"#4d7e55");
-  rect(100,80,1400,840,"#929a98");
-  rect(150,100,1300,800,"#424a4a");
-  for(let y=130;y<870;y+=100) rect(790,y,20,55,"#f4f1d9");
-  roundedRect(250,170,400,170,12,"#b9c5c4");
-  text("TERMINAL",450,265,"#33413e",28);
-  for(let i=0;i<3;i++){
-    const x=350+i*450,y=620+i%2*90;
-    line(x-70,y,x+70,y,"#e6e8dc",5);
-    line(x,y-70,x,y+70,"#e6e8dc",5);
-    circle(x,y,12,"#e6e8dc");
-  }
-}
-function drawStation() {
-  rect(0,0,worldW,worldH,"#718e7d");
-  rect(0,250,worldW,500,"#494e4c");
-  for(let y=330;y<700;y+=170) rect(0,y,worldW,8,"#bab5a4");
-  for(let x=100;x<worldW;x+=260){
-    rect(x,180,12,650,"#6e6b60");
-    rect(x-40,180,90,18,"#c1bba9");
-  }
-  roundedRect(400,100,800,100,12,"#b5c7b9");
-  text("기차역",800,160,"#264535",30);
-}
-function drawHaunted() {
-  rect(0,0,worldW,worldH,"#211e31");
-  for(let i=0;i<15;i++){
-    const x=rand(i+mapSeed)*worldW,y=rand(i*4+mapSeed)*worldH;
-    circle(x,y,20+rand(i*5)*35,"#39304b");
-  }
-  drawBuilding(250,240,300,420,"#42354e");
-  drawBuilding(650,150,300,510,"#30263f");
-  drawBuilding(1050,250,300,410,"#493348");
-  for(let i=0;i<14;i++){
-    circle(rand(i+mapSeed)*worldW,rand(i*3+mapSeed)*worldH,3,"#c7b7e8");
-  }
-  text("유령의 집",800,800,"#d6c8f3",28);
-}
-function drawCave() {
-  rect(0,0,worldW,worldH,"#292f38");
-  for(let i=0;i<40;i++){
-    const x=rand(i+mapSeed)*worldW,y=rand(i*3+mapSeed)*worldH;
-    circle(x,y,30+rand(i*4)*45,"#434c57");
-    if(i%4===0) text("💠",x,y,"#b5f5ff",24);
-  }
-  line(0,500,worldW,500,"#647483",22);
-  for(let i=0;i<7;i++){
-    const x=100+i*220;
-    line(x,400,x+40,500,"#8fd9ed",10);
-  }
-}
-function drawDesert() {
-  rect(0,0,worldW,worldH,"#d9bd76");
-  for(let i=0;i<14;i++){
-    const x=rand(i+mapSeed)*worldW,y=rand(i*3+mapSeed)*worldH;
-    ctx.beginPath();ctx.ellipse(x,y,120,35,0,0,Math.PI*2);
-    ctx.fillStyle="#c7a65e";ctx.fill();
-  }
-  for(let i=0;i<8;i++){
-    const x=100+i*200,y=250+rand(i+mapSeed)*500;
-    rect(x,y,22,110,"#3b7442");
-    rect(x-35,y+25,40,18,"#3b7442");
-    rect(x+15,y+50,35,18,"#3b7442");
-  }
-  text("사막",800,130,"#87632f",30);
-}
-function drawIsland() {
-  rect(0,0,worldW,worldH,"#1686a1");
-  ctx.beginPath();ctx.ellipse(800,500,650,420,0,0,Math.PI*2);
-  ctx.fillStyle="#d9c486";ctx.fill();
-  ctx.beginPath();ctx.ellipse(800,500,560,340,0,0,Math.PI*2);
-  ctx.fillStyle="#4a9854";ctx.fill();
-  for(let i=0;i<20;i++){
-    const a=rand(i+mapSeed)*Math.PI*2;
-    const x=800+Math.cos(a)*rand(i*3+mapSeed)*500;
-    const y=500+Math.sin(a)*rand(i*5+mapSeed)*290;
-    drawTree(x,y,.8+rand(i*7)*.5);
-  }
-  circle(800,500,80,"#75b7a1");
-}
-function drawGarden() {
-  rect(0,0,worldW,worldH,"#418d4d");
-  rect(0,440,worldW,100,"#c7b58b");
-  rect(750,0,100,worldH,"#c7b58b");
-  for(let i=0;i<24;i++){
-    const x=100+rand(i+mapSeed)*1400,y=70+rand(i*4+mapSeed)*850;
-    circle(x,y,35,"#2f7541");
-    circle(x-9,y-8,14,["#ed91c2","#e9d36b","#b9a0f1","#ffffff"][i%4]);
-    circle(x+10,y+8,14,["#ed91c2","#e9d36b","#b9a0f1","#ffffff"][i%4]);
-  }
-  circle(1100,300,70,"#64b8d0");
-  circle(1100,300,50,"#82d4df");
-}
 
-function drawPlayers() {
-  const visible = allPlayers.filter(p => p.game === currentGame?.id);
-
-  for (const p of visible) {
-    const x = p.id === myId ? me.x : p.x;
-    const y = p.id === myId ? me.y : p.y;
-    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-
-    // Opacity 0 means fully opaque: players must remain visible.
-    ctx.globalAlpha = 1;
-    circle(x,y+7,playerSize*.65,"#00000045");
-    circle(x,y,playerSize*.55,p.id === myId ? "#8affad" : "#f4f4f4");
-    circle(x,y,playerSize*.38,"#267d4a");
-    text(p.avatar || "🧑",x,y+8,"#ffffff",24);
-    text(p.name || "플레이어",x,y-28,"#ffffff",15);
-    ctx.globalAlpha = 1;
+  if(current.type==="maze"){
+    rr(1430,850,100,90,8,"#f5d34b");
+    label("EXIT",1480,905,"#493600",18);
   }
-}
 
-function draw() {
-  if (!currentGame || !canvas.width || !canvas.height) return;
-  const w=canvas.clientWidth,h=canvas.clientHeight;
-  if (!w || !h) return;
-
-  ctx.setTransform(
-    canvas.width/w,0,0,canvas.height/h,0,0
-  );
-  drawMap();
-
-  ctx.save();
-  // Camera follows the local player but clamps to the map edges.
-  const scaleX=w/worldW, scaleY=h/worldH;
-  const cameraX=Math.max(0,Math.min(worldW-w/scaleX,me.x-w/(2*scaleX)));
-  const cameraY=Math.max(0,Math.min(worldH-h/scaleY,me.y-h/(2*scaleY)));
-
-  // Clear and redraw a camera-sized world viewport.
-  drawBackground();
-  ctx.beginPath();
-  ctx.rect(0,0,w,h);
-  ctx.clip();
-
-  ctx.save();
-  ctx.scale(scaleX,scaleY);
-  ctx.translate(-cameraX,-cameraY);
-  drawWorldOnly();
   drawPlayers();
   ctx.restore();
-  ctx.restore();
-}
-function drawWorldOnly() {
-  // Reuse the selected map's own drawing function.
-  const type=currentGame?.type;
-  const fn={
-    city:drawCity,maze:drawMaze,race:drawRace,space:drawSpace,
-    soccer:drawSoccer,basketball:drawBasketball,battle:drawBattle,
-    park:drawPark,treasure:drawTreasure,police:drawPolice,
-    bank:drawBank,fire:drawFire,hospital:drawHospital,
-    library:drawLibrary,store:drawStore,apartment:drawApartment,
-    beach:drawBeach,forest:drawForest,snow:drawSnow,volcano:drawVolcano,
-    mine:drawMine,ocean:drawOcean,amusement:drawAmusement,airport:drawAirport,
-    station:drawStation,haunted:drawHaunted,cave:drawCave,
-    desert:drawDesert,island:drawIsland,garden:drawGarden
-  }[type];
-  if(fn) fn();
-  drawGrid();
+
+  if(current.type==="dodge"){
+    const hit=obstacles.some(o=>circleRect(me.x,me.y,17,o));
+
+    if(hit&&!gameOver){
+      gameOver=true;
+      $("topInfo").textContent="충돌! 다시 시작 버튼을 누르세요.";
+      $("restartBtn").style.display="inline-block";
+    }else if(!gameOver){
+      $("topInfo").textContent=
+        "자동차 피하기 · 생존 "+Math.floor(performance.now()/1000)+"초";
+    }
+  }
+
+  if(current.type==="maze"&&Math.hypot(me.x-1480,me.y-895)<48){
+    $("topInfo").textContent="미로 탈출 성공!";
+  }
+
+  if(current.type==="treasure"){
+    for(let i=0;i<14;i++){
+      const x=100+(i*107)%1400;
+      const y=100+(i*173)%800;
+
+      if(!oCollected.has(i)&&Math.hypot(me.x-x,me.y-y)<38){
+        oCollected.add(i);
+        progress++;
+        $("topInfo").textContent="보석 "+progress+"개 수집";
+      }
+    }
+  }
 }
 
-function addChat(name, avatar, message) {
+function addChat(name,avatar,message){
   const row=document.createElement("div");
   row.className="chatrow";
+
   const who=document.createElement("strong");
-  who.textContent=(avatar || "🧑")+" "+(name || "플레이어")+": ";
+  who.textContent=(avatar||"🧑")+" "+(name||"플레이어")+": ";
+
   const body=document.createElement("span");
   body.textContent=message;
+
   row.append(who,body);
-  messages.appendChild(row);
-  messages.scrollTop=messages.scrollHeight;
-  while(messages.children.length>100) messages.firstChild.remove();
+  $("chatMessages").appendChild(row);
+  $("chatMessages").scrollTop=$("chatMessages").scrollHeight;
+
+  while($("chatMessages").children.length>100){
+    $("chatMessages").firstChild.remove();
+  }
 }
-document.getElementById("chatForm").addEventListener("submit",e=>{
+
+$("chatForm").onsubmit=e=>{
   e.preventDefault();
-  const input=document.getElementById("chatInput");
+
+  const input=$("chatInput");
   const message=input.value.trim();
-  if(!message || !currentGame) return;
+
+  if(!message||!current)return;
+
   send({type:"chat",message});
   input.value="";
-});
+};
 
 window.addEventListener("keydown",e=>{
-  const key=e.key.toLowerCase();
-  if(["arrowup","arrowdown","arrowleft","arrowright"," "].includes(key) &&
-     !["INPUT","TEXTAREA"].includes(document.activeElement.tagName)) e.preventDefault();
-  keys[key]=true;
-});
-window.addEventListener("keyup",e=>{keys[e.key.toLowerCase()]=false;});
-window.addEventListener("blur",()=>{keys={};joystick={x:0,y:0};resetStick();});
+  const k=e.key.toLowerCase();
 
-const stick=document.getElementById("stick");
-const knob=document.getElementById("knob");
-let pointerId=null;
-function resetStick(){
-  knob.style.left="41px";knob.style.top="41px";
+  if(
+    ["arrowup","arrowdown","arrowleft","arrowright"," "].includes(k)&&
+    !["INPUT","TEXTAREA","SELECT"].includes(document.activeElement.tagName)
+  ){
+    e.preventDefault();
+  }
+
+  keys[k]=true;
+});
+
+window.addEventListener("keyup",e=>{
+  keys[e.key.toLowerCase()]=false;
+});
+
+window.addEventListener("blur",()=>{
+  keys={};
+  joy={x:0,y:0};
+  resetKnob();
+});
+
+const stick=$("stick");
+const knob=$("knob");
+let pointer=null;
+
+function resetKnob(){
+  knob.style.left="39px";
+  knob.style.top="39px";
 }
-stick.addEventListener("pointerdown",e=>{
-  pointerId=e.pointerId;
-  stick.setPointerCapture(pointerId);
-  moveStick(e);
-});
-stick.addEventListener("pointermove",e=>{
-  if(e.pointerId===pointerId) moveStick(e);
-});
+
 function moveStick(e){
   const r=stick.getBoundingClientRect();
-  let dx=e.clientX-(r.left+r.width/2);
-  let dy=e.clientY-(r.top+r.height/2);
-  const max=40,len=Math.hypot(dx,dy)||1;
-  if(len>max){dx=dx/len*max;dy=dy/len*max;}
-  joystick={x:dx/max,y:dy/max};
-  knob.style.left=(41+dx)+"px";
-  knob.style.top=(41+dy)+"px";
+
+  let dx=e.clientX-r.left-r.width/2;
+  let dy=e.clientY-r.top-r.height/2;
+
+  const len=Math.hypot(dx,dy)||1;
+  const max=38;
+
+  if(len>max){
+    dx=dx/len*max;
+    dy=dy/len*max;
+  }
+
+  joy={x:dx/max,y:dy/max};
+  knob.style.left=(39+dx)+"px";
+  knob.style.top=(39+dy)+"px";
 }
-function endStick(e){
-  if(pointerId===e.pointerId){
-    pointerId=null;joystick={x:0,y:0};resetStick();
+
+stick.onpointerdown=e=>{
+  pointer=e.pointerId;
+  stick.setPointerCapture(pointer);
+  moveStick(e);
+};
+
+stick.onpointermove=e=>{
+  if(pointer===e.pointerId)moveStick(e);
+};
+
+function stopStick(e){
+  if(pointer===e.pointerId){
+    pointer=null;
+    joy={x:0,y:0};
+    resetKnob();
   }
 }
-stick.addEventListener("pointerup",endStick);
-stick.addEventListener("pointercancel",endStick);
-stick.addEventListener("lostpointercapture",()=>{pointerId=null;joystick={x:0,y:0};resetStick();});
 
-let lastFrame=0;
+stick.onpointerup=stopStick;
+stick.onpointercancel=stopStick;
+
+stick.onlostpointercapture=()=>{
+  pointer=null;
+  joy={x:0,y:0};
+  resetKnob();
+};
+
 function loop(now){
-  const dt=Math.min((now-lastFrame)/16.67,2);
-  lastFrame=now;
+  const dt=Math.min((now-lastTime)/16.67,2)||1;
+  lastTime=now;
 
-  if(currentGame){
+  if(current&&!gameOver){
     let dx=0,dy=0;
-    if(keys["w"]||keys["arrowup"]) dy--;
-    if(keys["s"]||keys["arrowdown"]) dy++;
-    if(keys["a"]||keys["arrowleft"]) dx--;
-    if(keys["d"]||keys["arrowright"]) dx++;
-    dx+=joystick.x;dy+=joystick.y;
 
-    const length=Math.hypot(dx,dy);
-    if(length>0){
-      dx/=length;dy/=length;
-      me.x=Math.max(playerSize,Math.min(worldW-playerSize,me.x+dx*5*dt));
-      me.y=Math.max(playerSize,Math.min(worldH-playerSize,me.y+dy*5*dt));
+    if(keys.w||keys.arrowup)dy--;
+    if(keys.s||keys.arrowdown)dy++;
+    if(keys.a||keys.arrowleft)dx--;
+    if(keys.d||keys.arrowright)dx++;
+
+    dx+=joy.x;
+    dy+=joy.y;
+
+    const len=Math.hypot(dx,dy);
+
+    if(len){
+      dx/=len;
+      dy/=len;
+
+      const speed=current.type==="dodge"?4.3:5;
+
+      const nx=Math.max(20,Math.min(WORLD_W-20,me.x+dx*speed*dt));
+      const ny=Math.max(20,Math.min(WORLD_H-20,me.y+dy*speed*dt));
+
+      if(!blocked(nx,me.y))me.x=nx;
+      if(!blocked(me.x,ny))me.y=ny;
     }
 
-    if(now-lastSent>50){
+    if(now-lastMove>60){
       send({type:"move",x:me.x,y:me.y});
-      lastSent=now;
+      lastMove=now;
     }
+
     draw();
   }
+
   requestAnimationFrame(loop);
 }
+
 connect();
 requestAnimationFrame(loop);
 </script>
 </body>
 </html>`;
 
-const server = http.createServer((req, res) => {
-  if (req.url === "/health") {
-    res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
+const server=http.createServer((req,res)=>{
+  if(req.url==="/health"){
+    res.writeHead(200,{"Content-Type":"text/plain; charset=utf-8"});
     return res.end("ok");
   }
 
-  res.writeHead(200, {
-    "Content-Type": "text/html; charset=utf-8",
-    "Cache-Control": "no-cache"
+  res.writeHead(200,{
+    "Content-Type":"text/html; charset=utf-8",
+    "Cache-Control":"no-cache"
   });
 
-  res.end(html.replace("__GAMES__", JSON.stringify(games)));
+  res.end(page.replace("__GAMES__",JSON.stringify(games)));
 });
 
-const wss = new WebSocket.Server({ server });
+const wss=new WebSocket.Server({server});
 
-wss.on("connection", ws => {
-  const id = Math.random().toString(36).slice(2) +
-    Date.now().toString(36);
+wss.on("connection",ws=>{
+  const id=Math.random().toString(36).slice(2)+Date.now().toString(36);
 
-  sockets.set(id, ws);
+  sockets.set(id,ws);
+  send(ws,{type:"welcome",id});
 
-  send(ws, { type: "welcome", id });
-  broadcastPlayers();
-
-  ws.on("message", raw => {
-    let data;
-    try {
-      data = JSON.parse(raw.toString());
-    } catch {
+  ws.on("message",raw=>{
+    let d;
+    try{
+      d=JSON.parse(raw.toString());
+    }catch{
       return;
     }
 
-    const player = players.get(id);
+    if(d.type==="join"){
+      const game=games.find(g=>g.id===Number(d.game));
+      if(!game)return;
 
-    if (data.type === "join") {
-      const gameId = Number(data.game);
-      if (!games.some(g => g.id === gameId)) return;
+      const name=uniqueName(d.name,id);
+      const avatar=clean(d.avatar,8)||"🧑";
 
-      const requestedName = safeText(data.name, 18) || "플레이어";
-      const avatar = safeText(data.avatar, 8) || "🧑";
-      const uniqueName = makeUniqueName(requestedName, id);
-
-      players.set(id, {
-        id,
-        name: uniqueName,
-        avatar,
-        game: gameId,
-        x: 800,
-        y: 500
+      players.set(id,{
+        id,name,avatar,
+        game:game.id,
+        x:800,y:500
       });
 
-      send(ws, { type: "joined", name: uniqueName });
-      broadcastPlayers();
+      send(ws,{type:"joined",name});
+      broadcast();
       return;
     }
 
-    if (data.type === "leave") {
+    if(d.type==="leave"){
       players.delete(id);
-      broadcastPlayers();
+      broadcast();
       return;
     }
 
-    if (data.type === "move" && player) {
-      const x = Number(data.x);
-      const y = Number(data.y);
-      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    const p=players.get(id);
 
-      player.x = Math.max(26, Math.min(1574, x));
-      player.y = Math.max(26, Math.min(974, y));
-      broadcastPlayers();
+    if(d.type==="move"&&p){
+      const x=Number(d.x);
+      const y=Number(d.y);
+
+      if(!Number.isFinite(x)||!Number.isFinite(y))return;
+
+      p.x=Math.max(20,Math.min(W-20,x));
+      p.y=Math.max(20,Math.min(H-20,y));
+
+      broadcast();
       return;
     }
 
-    if (data.type === "chat" && player) {
-      const message = safeText(data.message, 180);
-      if (!message) return;
+    if(d.type==="chat"&&p){
+      const message=clean(d.message);
+      if(!message)return;
 
-      const packet = {
-        type: "chat",
-        game: player.game,
-        name: player.name,
-        avatar: player.avatar,
+      const packet={
+        type:"chat",
+        game:p.game,
+        name:p.name,
+        avatar:p.avatar,
         message
       };
 
-      // Only players in the same game receive the chat.
-      for (const [otherId, other] of players.entries()) {
-        if (other.game === player.game) {
-          const otherSocket = sockets.get(otherId);
-          if (otherSocket) send(otherSocket, packet);
+      for(const [otherId,other] of players){
+        if(other.game===p.game){
+          send(sockets.get(otherId),packet);
         }
       }
     }
   });
 
-  ws.on("close", () => removePlayer(id));
-  ws.on("error", () => removePlayer(id));
+  ws.on("close",()=>{
+    players.delete(id);
+    sockets.delete(id);
+    broadcast();
+  });
+
+  ws.on("error",()=>{
+    players.delete(id);
+    sockets.delete(id);
+    broadcast();
+  });
 });
 
-server.listen(PORT, "0.0.0.0", () => {
-  console.log("Multiplayer server running on port " + PORT);
+server.listen(PORT,"0.0.0.0",()=>{
+  console.log("Server running on "+PORT);
 });
