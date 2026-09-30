@@ -1,833 +1,684 @@
+
 const http = require("http");
 const WebSocket = require("ws");
+const crypto = require("crypto");
 
 const PORT = process.env.PORT || 3000;
 
-const html = `<!DOCTYPE html>
+const players = new Map();
+const sockets = new Map();
+
+const gameNames = [
+  "도시 탐험", "자동차 피하기", "미로 탈출", "점프맵",
+  "보물찾기", "좀비 생존", "우주 탐험", "축구 경기장",
+  "농구 경기장", "경찰서 탈출", "은행 지키기", "소방서 구조",
+  "병원 탐험", "도서관 탐험", "편의점 게임", "아파트 탐험",
+  "레이싱", "장애물 피하기", "몬스터 사냥", "보스전",
+  "스키비디 전쟁", "우주 전쟁", "기차 탈출", "학교 탐험",
+  "놀이공원", "수영장", "공원 탐험", "섬 탐험",
+  "화산 탈출", "빙하 탐험"
+];
+
+for (let i = 31; i <= 220; i++) {
+  gameNames.push("미니 게임 " + i);
+}
+
+const html = String.raw`<!DOCTYPE html>
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>준희 멀티플레이 게임</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>멀티플레이 게임</title>
 <style>
 *{box-sizing:border-box}
-body{
-  margin:0;
-  background:#111;
-  color:white;
-  font-family:Arial,sans-serif;
-  overflow:hidden;
-}
-#home{
-  width:100vw;
-  height:100vh;
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  padding:25px;
-  overflow:auto;
-}
-h1{margin:10px 0 20px}
-input,select,button{
-  font-size:18px;
-  padding:10px;
-  border-radius:10px;
-  border:0;
-  margin:5px;
-}
-button{
-  cursor:pointer;
-  background:#4b7bec;
-  color:white;
-}
-#games{
-  width:min(900px,95vw);
-  display:grid;
-  grid-template-columns:repeat(auto-fill,minmax(180px,1fr));
-  gap:10px;
-  margin-top:20px;
-}
-.game{
-  background:#252525;
-  padding:18px;
-  border-radius:15px;
-  cursor:pointer;
-  text-align:center;
-  border:2px solid transparent;
-}
-.game:hover{
-  border-color:#4b7bec;
-  background:#303030;
-}
-
-#gameScreen{
-  display:none;
-  width:100vw;
-  height:100vh;
-  position:relative;
-}
-#top{
-  position:absolute;
-  top:0;
-  left:0;
-  width:100%;
-  height:60px;
-  background:rgba(0,0,0,.75);
-  display:flex;
-  align-items:center;
-  gap:10px;
-  padding:8px;
-  z-index:5;
-}
-#title{
-  font-weight:bold;
-  flex:1;
-}
-#count{
-  background:#333;
-  padding:8px 12px;
-  border-radius:10px;
-}
-#canvas{
-  display:block;
-  width:100%;
-  height:100%;
-  background:#65b96e;
-}
-
-#chat{
-  position:absolute;
-  right:10px;
-  top:70px;
-  width:300px;
-  height:390px;
-  background:rgba(15,15,15,.9);
-  border-radius:15px;
-  padding:10px;
-  z-index:10;
-  display:none;
-}
-#messages{
-  height:310px;
-  overflow:auto;
-  background:#202020;
-  border-radius:10px;
-  padding:8px;
-}
-.msg{
-  margin-bottom:7px;
-  word-break:break-word;
-}
-#chatInput{
-  width:calc(100% - 75px);
-  margin:8px 0 0;
-}
-#send{
-  width:60px;
-  margin:8px 0 0 5px;
-  padding:9px 4px;
-}
-
-#joy{
-  position:absolute;
-  left:25px;
-  bottom:25px;
-  width:130px;
-  height:130px;
-  border-radius:50%;
-  background:rgba(0,0,0,.25);
-  border:3px solid rgba(255,255,255,.35);
-  z-index:5;
-}
-#stick{
-  position:absolute;
-  width:60px;
-  height:60px;
-  left:32px;
-  top:32px;
-  border-radius:50%;
-  background:rgba(255,255,255,.5);
-}
-
-#help{
-  position:absolute;
-  bottom:10px;
-  right:10px;
-  background:rgba(0,0,0,.5);
-  padding:8px 12px;
-  border-radius:10px;
-}
+body{margin:0;background:#151821;color:white;font-family:Arial,sans-serif}
+button,input{font:inherit;border:0;border-radius:10px;padding:10px}
+button{background:#477bfa;color:white;cursor:pointer}
+input{background:#f4f5f7;color:#111;min-width:0}
+#home{padding:20px;min-height:100vh;text-align:center}
+#games{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:12px;max-width:1100px;margin:24px auto}
+.game{padding:20px 10px;border:2px solid #353b4a;background:linear-gradient(135deg,#30394c,#202431);border-radius:15px;cursor:pointer}
+.game:hover{border-color:#7197ff;transform:translateY(-2px)}
+#profile{display:flex;justify-content:center;align-items:center;gap:8px;flex-wrap:wrap}
+#gameScreen{display:none;position:fixed;inset:0;background:#111}
+#canvas{width:100%;height:100%;display:block}
+#top{position:absolute;z-index:5;top:0;left:0;right:0;min-height:60px;background:#10131ddd;display:flex;align-items:center;gap:8px;padding:8px}
+#title{font-weight:bold;flex:1}
+#count{white-space:nowrap;background:#303646;padding:8px;border-radius:10px}
+#chat{display:none;position:absolute;right:10px;top:70px;width:min(310px,calc(100vw - 20px));height:360px;padding:10px;background:#151923f2;border-radius:15px;z-index:10}
+#messages{height:275px;overflow:auto;background:#252b38;border-radius:10px;padding:8px;overflow-wrap:anywhere}
+.msg{margin-bottom:8px}
+#chatInput{width:calc(100% - 68px);margin-top:8px}
+#send{width:60px;margin-top:8px}
+#joy{position:absolute;bottom:22px;left:22px;width:125px;height:125px;border-radius:50%;background:#0005;border:3px solid #ffffff55;touch-action:none}
+#stick{position:absolute;left:30px;top:30px;width:59px;height:59px;border-radius:50%;background:#ffffff80}
+#help{position:absolute;right:10px;bottom:10px;padding:8px;background:#0008;border-radius:8px;font-size:13px}
+@media(max-width:550px){#top{gap:5px;padding:5px}#top button{padding:8px;font-size:13px}#title{font-size:14px}#count{font-size:12px;padding:6px}}
 </style>
 </head>
-
 <body>
-
 <div id="home">
-  <h1>🌍 멀티플레이 게임</h1>
-
-  <div>
-    <input id="name" maxlength="12" placeholder="닉네임">
-    <select id="avatar">
-      <option>😀</option>
-      <option>😎</option>
-      <option>🤠</option>
-      <option>👽</option>
-      <option>🤖</option>
-      <option>🐱</option>
-      <option>🐶</option>
-      <option>🧑</option>
-    </select>
+  <h1>멀티플레이 게임</h1>
+  <p>닉네임과 캐릭터를 설정하고 게임을 선택하세요.</p>
+  <div id="profile">
+    <input id="name" maxlength="12" placeholder="닉네임" value="플레이어">
+    <input id="avatar" maxlength="8" placeholder="캐릭터 이모지" value="😀" style="width:145px">
   </div>
-
-  <p>게임을 선택하면 같은 게임에 있는 사람들이 보여요.</p>
-
+  <p id="connection">서버 연결 중...</p>
   <div id="games"></div>
 </div>
 
 <div id="gameScreen">
-
   <div id="top">
-    <button onclick="leaveGame()">🏠 홈</button>
-    <div id="title">게임</div>
+    <button id="homeButton">홈</button>
+    <div id="title"></div>
     <div id="count">0명</div>
-    <button onclick="toggleChat()">💬</button>
+    <button id="chatButton">채팅</button>
   </div>
-
   <canvas id="canvas"></canvas>
-
   <div id="chat">
     <div id="messages"></div>
-    <input id="chatInput" maxlength="100" placeholder="채팅 입력">
+    <input id="chatInput" maxlength="100" placeholder="메시지 입력">
     <button id="send">전송</button>
   </div>
-
-  <div id="joy">
-    <div id="stick"></div>
-  </div>
-
-  <div id="help">
-    이동: WASD / 방향키
-  </div>
-
+  <div id="joy"><div id="stick"></div></div>
+  <div id="help">이동: WASD / 방향키</div>
 </div>
 
 <script>
-const home = document.getElementById("home");
-const gameScreen = document.getElementById("gameScreen");
-const games = document.getElementById("games");
-const canvas = document.getElementById("canvas");
+const $ = id => document.getElementById(id);
+const home = $("home");
+const gameScreen = $("gameScreen");
+const canvas = $("canvas");
 const ctx = canvas.getContext("2d");
 
-const nameInput = document.getElementById("name");
-const avatarInput = document.getElementById("avatar");
-const title = document.getElementById("title");
-const count = document.getElementById("count");
-
-const chat = document.getElementById("chat");
-const messages = document.getElementById("messages");
-const chatInput = document.getElementById("chatInput");
-const send = document.getElementById("send");
-
-let ws;
+let ws = null;
 let myId = null;
 let currentGame = null;
-
 let players = {};
-
-let me = {
-  x: 500,
-  y: 400
-};
-
+let myX = 500;
+let myY = 400;
 let keys = {};
 let joyX = 0;
 let joyY = 0;
+let joyActive = false;
+let lastMoveSent = 0;
 
-const gameNames = [
-  "도시 탐험",
-  "자동차 피하기",
-  "미로 탈출",
-  "점프맵",
-  "보물찾기",
-  "좀비 생존",
-  "우주 탐험",
-  "축구 경기장",
-  "농구 경기장",
-  "경찰서 탈출",
-  "은행 지키기",
-  "소방서 구조",
-  "병원 탐험",
-  "도서관 탐험",
-  "편의점 게임",
-  "아파트 탐험",
-  "레이싱",
-  "장애물 피하기",
-  "몬스터 사냥",
-  "보스전",
-  "스키비디 전쟁",
-  "우주 전쟁",
-  "기차 탈출",
-  "학교 탐험",
-  "놀이공원",
-  "수영장",
-  "공원 탐험",
-  "섬 탐험",
-  "화산 탈출",
-  "빙하 탐험"
-];
+const gameNames = __GAME_NAMES__;
 
-for(let i=31;i<=220;i++){
-  gameNames.push("미니 게임 " + i);
-}
-
-gameNames.forEach((gameName,index)=>{
-  const div = document.createElement("div");
-  div.className = "game";
-  div.innerHTML =
-    "<b>" + (index+1) + ". " + gameName + "</b><br><small>멀티플레이</small>";
-
-  div.onclick = ()=>joinGame(gameName);
-
-  games.appendChild(div);
+gameNames.forEach((name, i) => {
+  const el = document.createElement("div");
+  el.className = "game";
+  const strong = document.createElement("b");
+  strong.textContent = (i + 1) + ". " + name;
+  const small = document.createElement("div");
+  small.textContent = "멀티플레이";
+  small.style.marginTop = "8px";
+  small.style.color = "#aebfe9";
+  el.append(strong, small);
+  el.addEventListener("click", () => joinGame(name));
+  $("games").appendChild(el);
 });
 
-function connect(){
-  const protocol =
-    location.protocol === "https:" ? "wss://" : "ws://";
+function connect() {
+  const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+  ws = new WebSocket(protocol + "//" + location.host);
 
-  ws = new WebSocket(protocol + location.host);
-
-  ws.onopen = ()=>{
-    console.log("서버 연결됨");
+  ws.onopen = () => {
+    $("connection").textContent = "서버 연결 완료";
+    $("connection").style.color = "#70e6a2";
   };
 
-  ws.onmessage = event=>{
-    const data = JSON.parse(event.data);
+  ws.onmessage = event => {
+    let data;
+    try { data = JSON.parse(event.data); }
+    catch { return; }
 
-    if(data.type === "welcome"){
+    if (data.type === "welcome") {
       myId = data.id;
     }
 
-    if(data.type === "players"){
+    if (data.type === "players") {
       players = data.players || {};
       updateCount();
     }
 
-    if(data.type === "move"){
-      if(players[data.id]){
+    if (data.type === "move") {
+      if (players[data.id]) {
         players[data.id].x = data.x;
         players[data.id].y = data.y;
       }
     }
 
-    if(data.type === "chat"){
-      addMessage(data.name, data.avatar, data.text);
+    if (data.type === "chat") {
+      if (data.game === currentGame) {
+        addMessage(data.name, data.avatar, data.text);
+      }
+    }
+
+    if (data.type === "error") {
+      alert(data.message);
     }
   };
 
-  ws.onclose = ()=>{
-    console.log("서버 연결 종료");
+  ws.onclose = () => {
+    $("connection").textContent = "서버 연결이 끊어졌습니다. 새로고침해 주세요.";
+    $("connection").style.color = "#ff8c8c";
   };
 }
 
-function joinGame(gameName){
-
-  if(!nameInput.value.trim()){
-    nameInput.value = "플레이어";
-  }
-
-  if(!ws || ws.readyState !== WebSocket.OPEN){
-    alert("서버에 연결되지 않았어.");
+function joinGame(game) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    alert("서버에 연결될 때까지 기다려 주세요.");
     return;
   }
 
-  currentGame = gameName;
+  const name = $("name").value.trim() || "플레이어";
+  const avatar = $("avatar").value.trim() || "😀";
 
-  me.x = 500;
-  me.y = 400;
+  if (!/\p{Extended_Pictographic}/u.test(avatar)) {
+    alert("캐릭터 칸에 이모지를 입력해 주세요. 예: 😀 🤖 🐱");
+    return;
+  }
 
+  currentGame = game;
+  myX = 500;
+  myY = 400;
+
+  $("title").textContent = game;
+  $("messages").replaceChildren();
+  $("chat").style.display = "none";
   home.style.display = "none";
   gameScreen.style.display = "block";
-
-  title.textContent = gameName;
+  resize();
 
   ws.send(JSON.stringify({
-    type:"join",
-    name:nameInput.value.trim(),
-    avatar:avatarInput.value,
-    game:gameName,
-    x:me.x,
-    y:me.y
+    type: "join",
+    name,
+    avatar,
+    game,
+    x: myX,
+    y: myY
   }));
-
-  resize();
 }
 
-function leaveGame(){
+function leaveGame() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: "leave" }));
+  }
 
   currentGame = null;
   gameScreen.style.display = "none";
-  home.style.display = "flex";
-
-  if(ws && ws.readyState === WebSocket.OPEN){
-    ws.send(JSON.stringify({
-      type:"leave"
-    }));
-  }
+  home.style.display = "block";
 }
 
-function updateCount(){
-
-  let n = 0;
-
-  for(const id in players){
-    if(players[id].game === currentGame){
-      n++;
-    }
+function updateCount() {
+  let total = 0;
+  for (const p of Object.values(players)) {
+    if (p.game === currentGame) total++;
   }
-
-  count.textContent = n + "명";
+  $("count").textContent = total + "명";
 }
 
-function addMessage(name,avatar,text){
-
+function addMessage(name, avatar, text) {
   const div = document.createElement("div");
   div.className = "msg";
-
-  div.textContent =
-    avatar + " " + name + ": " + text;
-
-  messages.appendChild(div);
-  messages.scrollTop = messages.scrollHeight;
+  div.textContent = avatar + " " + name + ": " + text;
+  $("messages").appendChild(div);
+  $("messages").scrollTop = $("messages").scrollHeight;
 }
 
-function toggleChat(){
+function sendChat() {
+  const text = $("chatInput").value.trim();
+  if (!text || !currentGame) return;
 
-  chat.style.display =
-    chat.style.display === "block"
-      ? "none"
-      : "block";
-}
-
-send.onclick = sendChat;
-
-chatInput.addEventListener("keydown",e=>{
-  if(e.key === "Enter"){
-    sendChat();
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: "chat", text }));
   }
+
+  $("chatInput").value = "";
+}
+
+$("send").onclick = sendChat;
+$("chatInput").addEventListener("keydown", e => {
+  if (e.key === "Enter") sendChat();
 });
 
-function sendChat(){
+$("chatButton").onclick = () => {
+  $("chat").style.display =
+    $("chat").style.display === "block" ? "none" : "block";
+};
 
-  const text = chatInput.value.trim();
+$("homeButton").onclick = leaveGame;
 
-  if(!text) return;
-
-  if(ws && ws.readyState === WebSocket.OPEN){
-
-    ws.send(JSON.stringify({
-      type:"chat",
-      text:text
-    }));
-  }
-
-  chatInput.value = "";
-}
-
-window.addEventListener("keydown",e=>{
+window.addEventListener("keydown", e => {
   keys[e.key.toLowerCase()] = true;
-
-  if(e.key === "Enter" &&
-     document.activeElement !== chatInput){
-    toggleChat();
+  if (["arrowup","arrowdown","arrowleft","arrowright"," "].includes(e.key.toLowerCase())) {
+    e.preventDefault();
   }
 });
 
-window.addEventListener("keyup",e=>{
+window.addEventListener("keyup", e => {
   keys[e.key.toLowerCase()] = false;
 });
 
-function resize(){
+window.addEventListener("blur", () => { keys = {}; });
 
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.round(window.innerWidth * dpr);
+  canvas.height = Math.round(window.innerHeight * dpr);
+  canvas.style.width = window.innerWidth + "px";
+  canvas.style.height = window.innerHeight + "px";
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
-
-window.addEventListener("resize",resize);
-
+window.addEventListener("resize", resize);
 resize();
 
-function movement(){
+function updateMovement() {
+  if (!currentGame) return;
 
-  if(!currentGame) return;
-
-  let dx = 0;
-  let dy = 0;
-
-  if(keys["w"] || keys["arrowup"]) dy -= 1;
-  if(keys["s"] || keys["arrowdown"]) dy += 1;
-  if(keys["a"] || keys["arrowleft"]) dx -= 1;
-  if(keys["d"] || keys["arrowright"]) dx += 1;
+  let dx = 0, dy = 0;
+  if (keys.w || keys.arrowup) dy--;
+  if (keys.s || keys.arrowdown) dy++;
+  if (keys.a || keys.arrowleft) dx--;
+  if (keys.d || keys.arrowright) dx++;
 
   dx += joyX;
   dy += joyY;
 
-  const length = Math.hypot(dx,dy);
-
-  if(length > 0){
-
+  const length = Math.hypot(dx, dy);
+  if (length > 0) {
     dx /= length;
     dy /= length;
+    myX = Math.max(25, Math.min(1975, myX + dx * 5));
+    myY = Math.max(25, Math.min(1375, myY + dy * 5));
 
-    me.x += dx * 4;
-    me.y += dy * 4;
-
-    me.x = Math.max(30,Math.min(1970,me.x));
-    me.y = Math.max(30,Math.min(1370,me.y));
-
-    if(ws && ws.readyState === WebSocket.OPEN){
-
+    const now = performance.now();
+    if (now - lastMoveSent > 40 &&
+        ws && ws.readyState === WebSocket.OPEN) {
+      lastMoveSent = now;
       ws.send(JSON.stringify({
-        type:"move",
-        x:me.x,
-        y:me.y,
-        game:currentGame
+        type: "move",
+        x: myX,
+        y: myY,
+        game: currentGame
       }));
     }
+
+    if (players[myId]) {
+      players[myId].x = myX;
+      players[myId].y = myY;
+    }
   }
 }
 
-function draw(){
+function drawMap(camX, camY) {
+  const g = currentGame || "";
 
-  ctx.clearRect(0,0,canvas.width,canvas.height);
+  if (g.includes("미로")) {
+    ctx.fillStyle = "#18252d";
+    ctx.fillRect(0, 0, innerWidth, innerHeight);
+    ctx.fillStyle = "#546b77";
+    for (let x = 0; x < 2000; x += 200) {
+      for (let y = 0; y < 1400; y += 200) {
+        if ((x / 200 + y / 200) % 3 !== 0) {
+          ctx.fillRect(x-camX, y-camY, 125, 125);
+        }
+      }
+    }
+    ctx.fillStyle = "#51f0a6";
+    ctx.fillRect(1850-camX, 1250-camY, 70, 70);
+    return;
+  }
 
+  if (g.includes("레이싱") || g.includes("자동차")) {
+    ctx.fillStyle = "#327d45";
+    ctx.fillRect(0, 0, innerWidth, innerHeight);
+    ctx.fillStyle = "#454953";
+    ctx.fillRect(100-camX, 100-camY, 1800, 1200);
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 5;
+    ctx.setLineDash([30, 25]);
+    ctx.strokeRect(140-camX, 140-camY, 1720, 1120);
+    ctx.setLineDash([]);
+    return;
+  }
+
+  if (g.includes("우주")) {
+    ctx.fillStyle = "#10122c";
+    ctx.fillRect(0, 0, innerWidth, innerHeight);
+    for (let i = 0; i < 180; i++) {
+      const x = (i * 197 + 37) % 2000;
+      const y = (i * 113 + 71) % 1400;
+      ctx.fillStyle = i % 3 ? "#ffffff" : "#8fdcff";
+      ctx.fillRect(x-camX, y-camY, 3, 3);
+    }
+    ctx.fillStyle = "#7656c8";
+    ctx.beginPath();
+    ctx.arc(1000-camX, 650-camY, 180, 0, Math.PI*2);
+    ctx.fill();
+    return;
+  }
+
+  if (g.includes("축구") || g.includes("농구")) {
+    ctx.fillStyle = g.includes("농구") ? "#bd783f" : "#33894b";
+    ctx.fillRect(0, 0, innerWidth, innerHeight);
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 5;
+    ctx.strokeRect(100-camX, 100-camY, 1800, 1200);
+    ctx.beginPath();
+    ctx.moveTo(1000-camX, 100-camY);
+    ctx.lineTo(1000-camX, 1300-camY);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(1000-camX, 700-camY, 150, 0, Math.PI*2);
+    ctx.stroke();
+    return;
+  }
+
+  if (g.includes("좀비") || g.includes("전쟁") || g.includes("보스")) {
+    ctx.fillStyle = "#514c48";
+    ctx.fillRect(0, 0, innerWidth, innerHeight);
+    for (let x = 150; x < 1900; x += 350) {
+      ctx.fillStyle = "#303238";
+      ctx.fillRect(x-camX, 200-camY, 150, 110);
+      ctx.fillStyle = "#817263";
+      ctx.fillRect(x+180-camX, 850-camY, 100, 170);
+    }
+    return;
+  }
+
+  // 일반 도시·탐험 맵
   ctx.fillStyle = "#69bd70";
-  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.fillRect(0, 0, innerWidth, innerHeight);
 
-  const cameraX =
-    me.x - canvas.width / 2;
-
-  const cameraY =
-    me.y - canvas.height / 2;
-
-  // 맵
-  ctx.fillStyle = "#4b9d57";
-  ctx.fillRect(
-    -cameraX,
-    -cameraY,
-    2000,
-    1400
-  );
-
-  // 길
   ctx.fillStyle = "#777";
-
-  for(let x=0;x<2000;x+=300){
-    ctx.fillRect(
-      x-cameraX,
-      300-cameraY,
-      250,
-      100
-    );
+  for (let x = 0; x < 2000; x += 300) {
+    ctx.fillRect(x-camX, 300-camY, 250, 100);
   }
 
-  // 건물
-  for(let x=100;x<1900;x+=400){
-
-    ctx.fillStyle="#777";
-    ctx.fillRect(
-      x-cameraX,
-      600-cameraY,
-      220,
-      160
-    );
-
-    ctx.fillStyle="#bbb";
-    ctx.fillRect(
-      x+20-cameraX,
-      620-cameraY,
-      70,
-      50
-    );
-
-    ctx.fillRect(
-      x+120-cameraX,
-      620-cameraY,
-      70,
-      50
-    );
+  for (let x = 100; x < 1900; x += 400) {
+    ctx.fillStyle = "#777";
+    ctx.fillRect(x-camX, 600-camY, 220, 160);
+    ctx.fillStyle = "#b8e6ff";
+    ctx.fillRect(x+20-camX, 620-camY, 70, 50);
+    ctx.fillRect(x+120-camX, 620-camY, 70, 50);
   }
+}
 
-  // 다른 플레이어
-  for(const id in players){
+function drawPlayer(x, y, avatar, name, isMe, camX, camY) {
+  const sx = x-camX, sy = y-camY;
+  if (sx < -100 || sy < -100 || sx > innerWidth+100 || sy > innerHeight+100) return;
 
-    const p = players[id];
+  ctx.textAlign = "center";
+  ctx.font = "38px sans-serif";
+  ctx.fillText(avatar || "😀", sx, sy);
 
-    if(p.game !== currentGame) continue;
+  ctx.font = "14px sans-serif";
+  const label = name || "플레이어";
+  const w = ctx.measureText(label).width + 14;
+  ctx.fillStyle = isMe ? "#284fc9" : "#171923dd";
+  ctx.fillRect(sx-w/2, sy-47, w, 21);
+  ctx.fillStyle = "#fff";
+  ctx.fillText(label, sx, sy-32);
+}
 
-    if(id === myId){
+function render() {
+  updateMovement();
+
+  if (currentGame) {
+    const camX = myX-innerWidth/2;
+    const camY = myY-innerHeight/2;
+    drawMap(camX, camY);
+
+    for (const [id, p] of Object.entries(players)) {
+      if (p.game !== currentGame) continue;
       drawPlayer(
-        me.x-cameraX,
-        me.y-cameraY,
-        p.avatar || avatarInput.value,
-        p.name || nameInput.value
-      );
-    }else{
-      drawPlayer(
-        p.x-cameraX,
-        p.y-cameraY,
+        id === myId ? myX : p.x,
+        id === myId ? myY : p.y,
         p.avatar,
-        p.name
+        p.name,
+        id === myId,
+        camX,
+        camY
       );
     }
   }
 
-  requestAnimationFrame(draw);
+  requestAnimationFrame(render);
 }
+render();
 
-function drawPlayer(x,y,avatar,name){
+// 모바일 조이스틱
+const joy = $("joy");
+const stick = $("stick");
 
-  ctx.font = "38px Arial";
-  ctx.textAlign = "center";
-  ctx.fillText(avatar || "😀",x,y);
-
-  ctx.font = "14px Arial";
-
-  const width =
-    ctx.measureText(name || "플레이어").width + 12;
-
-  ctx.fillStyle = "rgba(0,0,0,.65)";
-  ctx.fillRect(
-    x-width/2,
-    y-48,
-    width,
-    20
-  );
-
-  ctx.fillStyle = "white";
-  ctx.fillText(
-    name || "플레이어",
-    x,
-    y-33
-  );
-}
-
-setInterval(movement,30);
-
-draw();
-
-connect();
-
-
-// 조이스틱
-const joy = document.getElementById("joy");
-const stick = document.getElementById("stick");
-
-let joyActive = false;
-
-function updateJoy(clientX,clientY){
-
+function moveStick(e) {
   const rect = joy.getBoundingClientRect();
+  let x = e.clientX-(rect.left+rect.width/2);
+  let y = e.clientY-(rect.top+rect.height/2);
+  const max = 42;
+  const d = Math.hypot(x,y);
+  if (d > max) { x = x/d*max; y = y/d*max; }
 
-  const centerX =
-    rect.left + rect.width/2;
-
-  const centerY =
-    rect.top + rect.height/2;
-
-  let x = clientX-centerX;
-  let y = clientY-centerY;
-
-  const max = 45;
-  const distance = Math.hypot(x,y);
-
-  if(distance > max){
-
-    x = x/distance*max;
-    y = y/distance*max;
-  }
-
-  stick.style.left =
-    (32+x) + "px";
-
-  stick.style.top =
-    (32+y) + "px";
-
+  stick.style.left = (30+x)+"px";
+  stick.style.top = (30+y)+"px";
   joyX = x/max;
   joyY = y/max;
 }
 
-function resetJoy(){
-
+function resetStick() {
   joyActive = false;
-
-  joyX = 0;
-  joyY = 0;
-
-  stick.style.left = "32px";
-  stick.style.top = "32px";
+  joyX = joyY = 0;
+  stick.style.left = "30px";
+  stick.style.top = "30px";
 }
 
-joy.addEventListener("pointerdown",e=>{
+joy.addEventListener("pointerdown", e => {
   joyActive = true;
   joy.setPointerCapture(e.pointerId);
-  updateJoy(e.clientX,e.clientY);
+  moveStick(e);
 });
-
-joy.addEventListener("pointermove",e=>{
-  if(joyActive){
-    updateJoy(e.clientX,e.clientY);
-  }
+joy.addEventListener("pointermove", e => {
+  if (joyActive) moveStick(e);
 });
+joy.addEventListener("pointerup", resetStick);
+joy.addEventListener("pointercancel", resetStick);
 
-joy.addEventListener("pointerup",resetJoy);
-joy.addEventListener("pointercancel",resetJoy);
-
+connect();
 </script>
 </body>
 </html>`;
 
-const server = http.createServer((req,res)=>{
-  res.writeHead(200,{
-    "Content-Type":"text/html; charset=utf-8"
-  });
+const page = html.replace(
+  "__GAME_NAMES__",
+  JSON.stringify(gameNames)
+);
 
-  res.end(html);
+const server = http.createServer((req, res) => {
+  if (req.url === "/health") {
+    res.writeHead(200, { "Content-Type": "text/plain" });
+    return res.end("OK");
+  }
+
+  res.writeHead(200, {
+    "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": "no-store"
+  });
+  res.end(page);
 });
 
-const wss = new WebSocket.Server({server});
+const wss = new WebSocket.Server({ server });
 
-const players = new Map();
+function send(socket, data) {
+  if (socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify(data));
+  }
+}
 
-let nextId = 1;
+function broadcast(data, except = null) {
+  for (const client of wss.clients) {
+    if (client !== except && client.readyState === WebSocket.OPEN) {
+      send(client, data);
+    }
+  }
+}
 
-wss.on("connection",socket=>{
+function broadcastPlayers() {
+  const snapshot = {};
 
-  const id = String(nextId++);
+  for (const [id, p] of players) {
+    snapshot[id] = { ...p };
+  }
 
-  players.set(id,{
+  broadcast({ type: "players", players: snapshot });
+}
+
+function uniqueName(requested, id) {
+  const base = (requested || "플레이어").slice(0, 12);
+  let candidate = base;
+  let number = 2;
+
+  const used = new Set();
+
+  for (const [otherId, p] of players) {
+    if (otherId !== id && p.name === candidate) {
+      used.add(p.name);
+    }
+  }
+
+  while (used.has(candidate) ||
+         [...players.entries()].some(([otherId, p]) =>
+           otherId !== id && p.name === candidate
+         )) {
+    const suffix = " (" + number++ + ")";
+    candidate = base.slice(0, Math.max(1, 12-suffix.length)) + suffix;
+  }
+
+  return candidate;
+}
+
+function cleanText(value, maxLength) {
+  return String(value ?? "").trim().slice(0, maxLength);
+}
+
+wss.on("connection", socket => {
+  const id = crypto.randomUUID();
+
+  sockets.set(id, socket);
+
+  players.set(id, {
     id,
-    name:"플레이어",
-    avatar:"😀",
-    game:null,
-    x:500,
-    y:400
+    name: "플레이어",
+    avatar: "😀",
+    game: null,
+    x: 500,
+    y: 400
   });
 
-  socket.send(JSON.stringify({
-    type:"welcome",
-    id
-  }));
-
+  send(socket, { type: "welcome", id });
   broadcastPlayers();
 
-  socket.on("message",raw=>{
+  socket.on("message", raw => {
+    if (raw.length > 4096) return;
 
     let data;
-
-    try{
+    try {
       data = JSON.parse(raw.toString());
-    }catch{
+    } catch {
       return;
     }
 
     const p = players.get(id);
+    if (!p || !data || typeof data.type !== "string") return;
 
-    if(!p) return;
+    if (data.type === "join") {
+      const game = cleanText(data.game, 100);
+      if (!gameNames.includes(game)) {
+        return send(socket, {
+          type: "error",
+          message: "존재하지 않는 게임입니다."
+        });
+      }
 
-    if(data.type === "join"){
+      const name = cleanText(data.name, 12) || "플레이어";
+      const avatar = cleanText(data.avatar, 8) || "😀";
 
-      p.name =
-        String(data.name || "플레이어").slice(0,12);
+      p.name = uniqueName(name, id);
+      p.avatar = avatar;
+      p.game = game;
+      p.x = 500;
+      p.y = 400;
 
-      p.avatar =
-        String(data.avatar || "😀").slice(0,4);
-
-      p.game =
-        String(data.game || "").slice(0,100);
-
-      p.x = Number(data.x) || 500;
-      p.y = Number(data.y) || 400;
-
+      send(socket, { type: "joined", id, name: p.name });
       broadcastPlayers();
+      return;
     }
 
-    if(data.type === "move"){
-
-      if(p.game !== data.game) return;
-
-      p.x = Number(data.x) || p.x;
-      p.y = Number(data.y) || p.y;
-
-      broadcast({
-        type:"move",
-        id,
-        x:p.x,
-        y:p.y
-      },socket);
-    }
-
-    if(data.type === "chat"){
-
-      const text =
-        String(data.text || "").slice(0,100);
-
-      if(!text) return;
-
-      broadcast({
-        type:"chat",
-        name:p.name,
-        avatar:p.avatar,
-        text
-      });
-    }
-
-    if(data.type === "leave"){
-
+    if (data.type === "leave") {
       p.game = null;
-
       broadcastPlayers();
+      return;
+    }
+
+    if (data.type === "move") {
+      if (!p.game || data.game !== p.game) return;
+
+      const x = Number(data.x);
+      const y = Number(data.y);
+
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+
+      p.x = Math.max(25, Math.min(1975, x));
+      p.y = Math.max(25, Math.min(1375, y));
+
+      broadcast({
+        type: "move",
+        id,
+        x: p.x,
+        y: p.y,
+        game: p.game
+      }, socket);
+      return;
+    }
+
+    if (data.type === "chat") {
+      if (!p.game) return;
+
+      const text = cleanText(data.text, 100);
+      if (!text) return;
+
+      for (const [otherId, otherSocket] of sockets) {
+        const otherPlayer = players.get(otherId);
+
+        if (otherPlayer &&
+            otherPlayer.game === p.game) {
+          send(otherSocket, {
+            type: "chat",
+            name: p.name,
+            avatar: p.avatar,
+            text,
+            game: p.game
+          });
+        }
+      }
     }
   });
 
-  socket.on("close",()=>{
+  socket.on("close", () => {
     players.delete(id);
+    sockets.delete(id);
+    broadcastPlayers();
+  });
+
+  socket.on("error", () => {
+    players.delete(id);
+    sockets.delete(id);
     broadcastPlayers();
   });
 });
 
-function broadcast(data,except=null){
-
-  const text = JSON.stringify(data);
-
-  wss.clients.forEach(client=>{
-
-    if(client.readyState !== WebSocket.OPEN) return;
-
-    if(except && client === except) return;
-
-    client.send(text);
-  });
-}
-
-function broadcastPlayers(){
-
-  const obj = {};
-
-  players.forEach((p,id)=>{
-    obj[id] = p;
-  });
-
-  broadcast({
-    type:"players",
-    players:obj
-  });
-}
-
-server.listen(PORT,()=>{
-  console.log("");
-  console.log("================================");
-  console.log("멀티플레이 서버 실행!");
-  console.log("http://localhost:" + PORT);
-  console.log("================================");
+server.listen(PORT, "0.0.0.0", () => {
+  console.log("Multiplayer server running on port " + PORT);
 });
